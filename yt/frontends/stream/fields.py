@@ -37,18 +37,19 @@ class StreamFieldInfo(FieldInfoContainer):
         ("metallicity", ("Zsun", ["metallicity"], None)),
 
         # We need to have a bunch of species fields here, too
-        ("metal_density",   ("code_mass/code_length**3", ["metal_density"], None)),
-        ("hi_density",      ("code_mass/code_length**3", ["hi_density"], None)),
-        ("hii_density",     ("code_mass/code_length**3", ["hii_density"], None)),
-        ("h2i_density",     ("code_mass/code_length**3", ["h2i_density"], None)),
-        ("h2ii_density",    ("code_mass/code_length**3", ["h2ii_density"], None)),
-        ("h2m_density",     ("code_mass/code_length**3", ["h2m_density"], None)),
-        ("hei_density",     ("code_mass/code_length**3", ["hei_density"], None)),
-        ("heii_density",    ("code_mass/code_length**3", ["heii_density"], None)),
-        ("heiii_density",   ("code_mass/code_length**3", ["heiii_density"], None)),
-        ("hdi_density",     ("code_mass/code_length**3", ["hdi_density"], None)),
-        ("di_density",      ("code_mass/code_length**3", ["di_density"], None)),
-        ("dii_density",     ("code_mass/code_length**3", ["dii_density"], None)),
+        ("metal_density", ("code_mass/code_length**3", ["metal_density"], None)),
+        ("H_p0_density", ("code_mass/code_length**3", ["H_p0_density"], None)),
+        ("H_p1_density", ("code_mass/code_length**3", ["H_p1_density"], None)),
+        ("H_m1_density", ("code_mass/code_length**3", ["H_m1_density"], None)),
+        ("H2_p0_density", ("code_mass/code_length**3", ["H2_p0_density"], None)),
+        ("H2_p1_density", ("code_mass/code_length**3", ["H2_p1_density"], None)),
+        ("He_p0_density", ("code_mass/code_length**3", ["He_p0_density"], None)),
+        ("He_p1_density", ("code_mass/code_length**3", ["He_p1_density"], None)),
+        ("He_p2_density", ("code_mass/code_length**3", ["He_p2_density"], None)),
+        ("HD_p0_density", ("code_mass/code_length**3", ["HD_p0_density"], None)),
+        ("D_p0_density", ("code_mass/code_length**3", ["D_p0_density"], None)),
+        ("D_p1_density", ("code_mass/code_length**3", ["D_p1_density"], None)),
+        ("El_density",  ("code_mass/code_length**3", ["El_density"], None)),
     )
 
     known_particle_fields = (
