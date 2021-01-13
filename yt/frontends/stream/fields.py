@@ -16,9 +16,6 @@ Fields specific to Streaming data
 from yt.fields.field_info_container import \
     FieldInfoContainer
 
-from yt.fields.species_fields import \
-    setup_species_fields
-
 class StreamFieldInfo(FieldInfoContainer):
     known_other_fields = (
         ("density", ("code_mass/code_length**3", ["density"], None)),
@@ -91,8 +88,6 @@ class StreamFieldInfo(FieldInfoContainer):
                 self.add_output_field(field, sampling_type="cell", units=units)
         setup_magnetic_field_aliases(self, "stream", 
                                      ["magnetic_field_%s" % ax for ax in "xyz"])
-        #import pdb; pdb.set_trace()
-        setup_species_fields(self)
 
     def add_output_field(self, name, sampling_type, **kwargs):
         if name in self.ds.stream_handler.field_units:
