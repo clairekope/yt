@@ -16,6 +16,8 @@ Fields specific to Streaming data
 from yt.fields.field_info_container import \
     FieldInfoContainer
 
+from yt.fields.species_fields import \
+    setup_species_fields
 
 class StreamFieldInfo(FieldInfoContainer):
     known_other_fields = (
@@ -72,6 +74,12 @@ class StreamFieldInfo(FieldInfoContainer):
         ("age", ("code_time", [], None))
     )
 
+    def __init__(self, *args, **kwargs):
+        super(StreamFieldInfo, self).__init__(*args, **kwargs)
+        self.species_names = ["H_p0","H_p1","H_m1","H2_p0","H2_p1",
+                              "He_p0", "He_p1", "He_p2",
+                              "HD_p0", "D_p0", "D_p1", "El"]
+
     def setup_fluid_fields(self):
         from yt.fields.magnetic_field import \
             setup_magnetic_field_aliases
@@ -81,7 +89,10 @@ class StreamFieldInfo(FieldInfoContainer):
             units = self.ds.stream_handler.field_units[field]
             if units != '': 
                 self.add_output_field(field, sampling_type="cell", units=units)
-        setup_magnetic_field_aliases(self, "stream", ["magnetic_field_%s" % ax for ax in "xyz"])
+        setup_magnetic_field_aliases(self, "stream", 
+                                     ["magnetic_field_%s" % ax for ax in "xyz"])
+        #import pdb; pdb.set_trace()
+        setup_species_fields(self)
 
     def add_output_field(self, name, sampling_type, **kwargs):
         if name in self.ds.stream_handler.field_units:
