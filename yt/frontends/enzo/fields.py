@@ -104,6 +104,7 @@ class EnzoFieldInfo(FieldInfoContainer):
         ("particle_type", ("", [], None)),
         ("particle_index", ("", [], None)),
         ("particle_mass", ("code_mass", [], None)),
+        ("particle_initial_mass", ("code_mass", [], None)),
         ("GridID", ("", [], None)),
         ("identifier", ("", ["particle_index"], None)),
         ("level", ("", [], None)),
