@@ -5,7 +5,7 @@ from yt.data_objects.static_output import Dataset
 from yt.data_objects.unions import MeshUnion
 from yt.funcs import setdefaultattr
 from yt.geometry.unstructured_mesh_handler import UnstructuredIndex
-from yt.utilities.file_handler import NetCDF4FileHandler, warn_netcdf
+from yt.utilities.file_handler import NetCDF4FileHandler, valid_netcdf_signature
 from yt.utilities.logger import ytLogger as mylog
 
 from .fields import ExodusIIFieldInfo
@@ -46,6 +46,7 @@ class ExodusIIUnstructuredIndex(UnstructuredIndex):
 
 
 class ExodusIIDataset(Dataset):
+    _load_requirements = ["netCDF4"]
     _index_class = ExodusIIUnstructuredIndex
     _field_info_class = ExodusIIFieldInfo
 
@@ -121,7 +122,7 @@ class ExodusIIDataset(Dataset):
         >>> ds = yt.load(
         ...     "MOOSE_sample_data/mps_out.e",
         ...     step=10,
-        ...     displacements={"connect2": (1.0, [0.0, 0.0, 0.0])},
+        ...     displacements={"connect2": (5.0, [0.0, 0.0, 0.0])},
         ... )
 
         This will load the Dataset at index 10, scaling the displacements for
@@ -176,7 +177,6 @@ class ExodusIIDataset(Dataset):
             self._read_glo_var()
             self.dimensionality = ds.variables["coor_names"].shape[0]
             self.parameters["info_records"] = self._load_info_records()
-            self.unique_identifier = self._get_unique_identifier()
             self.num_steps = len(ds.variables["time_whole"])
             self.current_time = self._get_current_time()
             self.parameters["num_meshes"] = ds.variables["eb_status"].shape[0]
@@ -233,9 +233,6 @@ class ExodusIIDataset(Dataset):
             except (KeyError, TypeError):
                 mylog.warning("No info_records found")
                 return []
-
-    def _get_unique_identifier(self):
-        return self.parameter_filename
 
     def _get_current_time(self):
         with self._handle.open_ds() as ds:
@@ -315,20 +312,15 @@ class ExodusIIDataset(Dataset):
                 )
             else:
                 coords = (
-                    np.array([coord for coord in ds.variables["coord"][:]])
-                    .transpose()
-                    .astype("f8")
+                    np.array(list(ds.variables["coord"][:])).transpose().astype("f8")
                 )
             return coords
 
     def _apply_displacement(self, coords, mesh_id):
-
         mesh_name = "connect%d" % (mesh_id + 1)
+        new_coords = coords.copy()
         if mesh_name not in self.displacements:
-            new_coords = coords.copy()
             return new_coords
-
-        new_coords = np.zeros_like(coords)
         fac = self.displacements[mesh_name][0]
         offset = self.displacements[mesh_name][1]
 
@@ -408,8 +400,13 @@ class ExodusIIDataset(Dataset):
         return mi, ma
 
     @classmethod
-    def _is_valid(cls, filename, *args, **kwargs):
-        warn_netcdf(filename)
+    def _is_valid(cls, filename: str, *args, **kwargs) -> bool:
+        if not valid_netcdf_signature(filename):
+            return False
+
+        if cls._missing_load_requirements():
+            return False
+
         try:
             from netCDF4 import Dataset
 
@@ -419,4 +416,4 @@ class ExodusIIDataset(Dataset):
                 f.variables["connect1"]
             return True
         except Exception:
-            pass
+            return False

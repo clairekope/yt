@@ -1,11 +1,11 @@
 import os
 import shutil
+import sys
 import tempfile
+from importlib.metadata import version
 from importlib.util import find_spec
 from pathlib import Path
 
-import matplotlib
-import numpy
 import pytest
 import yaml
 from packaging.version import Version
@@ -20,8 +20,21 @@ from yt.utilities.answer_testing.testing_utilities import (
     data_dir_load,
 )
 
-MPL_VERSION = Version(matplotlib.__version__)
-NUMPY_VERSION = Version(numpy.__version__)
+MPL_VERSION = Version(version("matplotlib"))
+NUMPY_VERSION = Version(version("numpy"))
+PILLOW_VERSION = Version(version("pillow"))
+
+# setuptools does not ship with the standard lib starting in Python 3.12, so we need to
+# be resilient if it's not available at runtime
+if find_spec("setuptools") is not None:
+    SETUPTOOLS_VERSION = Version(version("setuptools"))
+else:
+    SETUPTOOLS_VERSION = None
+
+if find_spec("pandas") is not None:
+    PANDAS_VERSION = Version(version("pandas"))
+else:
+    PANDAS_VERSION = None
 
 
 def pytest_addoption(parser):
@@ -84,20 +97,15 @@ def pytest_configure(config):
         # >>> warnings emitted by testing frameworks, or in testing contexts
         # we still have some yield-based tests, awaiting for transition into pytest
         "ignore::pytest.PytestCollectionWarning",
-        # imp is used in nosetest
-        "ignore:the imp module is deprecated in favour of importlib; see the module's documentation for alternative uses:DeprecationWarning",
-        # the deprecation warning message for imp changed in Python 3.10, so we ignore both versions
-        "ignore:the imp module is deprecated in favour of importlib and slated for removal in Python 3.12; see the module's documentation for alternative uses:DeprecationWarning",
         # matplotlib warnings related to the Agg backend which is used in CI, not much we can do about it
         "ignore:Matplotlib is currently using agg, which is a non-GUI backend, so cannot show the figure.:UserWarning",
-        "ignore:tight_layout . falling back to Agg renderer:UserWarning",
+        r"ignore:tight_layout.+falling back to Agg renderer:UserWarning",
         #
         # >>> warnings from wrong values passed to numpy
         # these should normally be curated out of the test suite but they are too numerous
         # to deal with in a reasonable time at the moment.
         "ignore:invalid value encountered in log10:RuntimeWarning",
         "ignore:divide by zero encountered in log10:RuntimeWarning",
-        "ignore:invalid value encountered in true_divide:RuntimeWarning",
         #
         # >>> there are many places in yt (most notably at the frontend level)
         # where we open files but never explicitly close them
@@ -109,49 +117,49 @@ def pytest_configure(config):
     ):
         config.addinivalue_line("filterwarnings", value)
 
-    if MPL_VERSION < Version("3.0.0"):
+    if SETUPTOOLS_VERSION is not None and SETUPTOOLS_VERSION >= Version("67.3.0"):
+        # may be triggered by multiple dependencies
+        # see https://github.com/glue-viz/glue/issues/2364
+        # see https://github.com/matplotlib/matplotlib/issues/25244
         config.addinivalue_line(
             "filterwarnings",
-            (
-                "ignore:Using or importing the ABCs from 'collections' instead of from 'collections.abc' "
-                "is deprecated since Python 3.3,and in 3.9 it will stop working:DeprecationWarning"
-            ),
+            r"ignore:(Deprecated call to `pkg_resources\.declare_namespace\('.*'\)`\.\n)?"
+            r"Implementing implicit namespace packages \(as specified in PEP 420\) "
+            r"is preferred to `pkg_resources\.declare_namespace`\.:DeprecationWarning",
         )
 
-    if MPL_VERSION < Version("3.5.2"):
-        if MPL_VERSION < Version("3.3"):
-            try:
-                import PIL
-            except ImportError:
-                PILLOW_INSTALLED = False
-            else:
-                PILLOW_INSTALLED = True
-        else:
-            # pillow became a hard dependency in matplotlib 3.3
-            import PIL
-
-            PILLOW_INSTALLED = True
-        if PILLOW_INSTALLED and Version(PIL.__version__) >= Version("9.1"):
-            # see https://github.com/matplotlib/matplotlib/pull/22766
-            config.addinivalue_line(
-                "filterwarnings",
-                r"ignore:NONE is deprecated and will be removed in Pillow 10 \(2023-07-01\)\. "
-                r"Use Resampling\.NEAREST or Dither\.NONE instead\.:DeprecationWarning",
-            )
-            config.addinivalue_line(
-                "filterwarnings",
-                r"ignore:ADAPTIVE is deprecated and will be removed in Pillow 10 \(2023-07-01\)\. "
-                r"Use Palette\.ADAPTIVE instead\.:DeprecationWarning",
-            )
-
-    if NUMPY_VERSION < Version("1.19") and MPL_VERSION < Version("3.3"):
-        # This warning is triggered from matplotlib in exactly one test at the time of writing
-        # and exclusively on the minimal test env. Upgrading numpy or matplotlib resolves
-        # the issue, so we can afford to ignore it.
+    if SETUPTOOLS_VERSION is not None and SETUPTOOLS_VERSION >= Version("67.5.0"):
+        # may be triggered by multiple dependencies
+        # see https://github.com/glue-viz/glue/issues/2364
+        # see https://github.com/matplotlib/matplotlib/issues/25244
         config.addinivalue_line(
             "filterwarnings",
-            "ignore:invalid value encountered in less_equal:RuntimeWarning",
+            "ignore:pkg_resources is deprecated as an API:DeprecationWarning",
         )
+
+    if MPL_VERSION < Version("3.5.2") and PILLOW_VERSION >= Version("9.1"):
+        # see https://github.com/matplotlib/matplotlib/pull/22766
+        config.addinivalue_line(
+            "filterwarnings",
+            r"ignore:NONE is deprecated and will be removed in Pillow 10 \(2023-07-01\)\. "
+            r"Use Resampling\.NEAREST or Dither\.NONE instead\.:DeprecationWarning",
+        )
+        config.addinivalue_line(
+            "filterwarnings",
+            r"ignore:ADAPTIVE is deprecated and will be removed in Pillow 10 \(2023-07-01\)\. "
+            r"Use Palette\.ADAPTIVE instead\.:DeprecationWarning",
+        )
+
+    if NUMPY_VERSION >= Version("1.25"):
+        if find_spec("h5py") is not None and (
+            Version(version("h5py")) < Version("3.9")
+        ):
+            # https://github.com/h5py/h5py/pull/2242
+            config.addinivalue_line(
+                "filterwarnings",
+                "ignore:`product` is deprecated as of NumPy 1.25.0"
+                ":DeprecationWarning",
+            )
 
     if find_spec("astropy") is not None:
         # at the time of writing, astropy's wheels are behind numpy's latest
@@ -166,25 +174,29 @@ def pytest_configure(config):
             ),
         )
 
-    if find_spec("cartopy") is not None:
-        # This can be removed when cartopy 0.21 is released
-        # see https://github.com/SciTools/cartopy/pull/1957
+    if PANDAS_VERSION is not None and PANDAS_VERSION >= Version("2.2.0"):
         config.addinivalue_line(
             "filterwarnings",
-            (
-                r"ignore:The default value for the \*approx\* keyword argument to "
-                r"\w+ will change from True to False after 0\.18\.:UserWarning"
-            ),
+            r"ignore:\s*Pyarrow will become a required dependency of pandas:DeprecationWarning",
         )
-        # this one could be resolved by upgrading PROJ on Jenkins,
-        # but there's isn't much else that can be done about it.
+
+    if sys.version_info >= (3, 12):
+        # already patched (but not released) upstream:
+        # https://github.com/dateutil/dateutil/pull/1285
         config.addinivalue_line(
             "filterwarnings",
-            (
-                "ignore:The Stereographic projection in Proj older than 5.0.0 incorrectly "
-                "transforms points when central_latitude=0. Use this projection with caution.:UserWarning"
-            ),
+            r"ignore:datetime\.datetime\.utcfromtimestamp\(\) is deprecated:DeprecationWarning",
         )
+
+        if find_spec("ratarmount"):
+            # On Python 3.12+, there is a deprecation warning when calling os.fork()
+            # in a multi-threaded process. We use this mechanism to mount archives.
+            config.addinivalue_line(
+                "filterwarnings",
+                r"ignore:This process \(pid=\d+\) is multi-threaded, use of fork\(\) "
+                r"may lead to deadlocks in the child\."
+                ":DeprecationWarning",
+            )
 
 
 def pytest_collection_modifyitems(config, items):
@@ -215,6 +227,16 @@ def pytest_collection_modifyitems(config, items):
             "--with-answer-testing"
         ):
             item.add_marker(skip_unit)
+
+
+def pytest_itemcollected(item):
+    # Customize pytest-mpl decorator to add sensible defaults
+
+    mpl_marker = item.get_closest_marker("mpl_image_compare")
+    if mpl_marker is not None:
+        # in a future version, pytest-mpl may gain an option for doing this:
+        # https://github.com/matplotlib/pytest-mpl/pull/181
+        mpl_marker.kwargs.setdefault("tolerance", 0.5)
 
 
 def _param_list(request):

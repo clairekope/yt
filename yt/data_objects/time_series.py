@@ -3,8 +3,9 @@ import glob
 import inspect
 import os
 import weakref
+from abc import ABC, abstractmethod
 from functools import wraps
-from typing import Optional, Type
+from typing import Optional
 
 import numpy as np
 from more_itertools import always_iterable
@@ -53,7 +54,7 @@ def get_ds_prop(propname):
     def _eval(params, ds):
         return getattr(ds, propname)
 
-    cls = type(propname, (AnalysisTask,), dict(eval=_eval, _params=tuple()))
+    cls = type(propname, (AnalysisTask,), {"eval": _eval, "_params": ()})
     return cls
 
 
@@ -142,10 +143,11 @@ class DatasetSeries:
     ...     SlicePlot(ds, "x", ("gas", "density")).save()
 
     """
+
     # this annotation should really be Optional[Type[Dataset]]
     # but we cannot import the yt.data_objects.static_output.Dataset
     # class here without creating a circular import for now
-    _dataset_cls: Optional[Type] = None
+    _dataset_cls: Optional[type] = None
 
     def __init_subclass__(cls, *args, **kwargs):
         super().__init_subclass__(*args, **kwargs)
@@ -416,13 +418,13 @@ class DatasetSeries:
         ... ]
         >>> ds = load(my_fns[0])
         >>> init_sphere = ds.sphere(ds.domain_center, (0.5, "unitary"))
-        >>> indices = init_sphere[("all", "particle_index")].astype("int")
+        >>> indices = init_sphere["all", "particle_index"].astype("int64")
         >>> ts = DatasetSeries(my_fns)
         >>> trajs = ts.particle_trajectories(indices, fields=fields)
         >>> for t in trajs:
         ...     print(
-        ...         t[("all", "particle_velocity_x")].max(),
-        ...         t[("all", "particle_velocity_x")].min(),
+        ...         t["all", "particle_velocity_x"].max(),
+        ...         t["all", "particle_velocity_x"].min(),
         ...     )
 
         Notes
@@ -478,7 +480,7 @@ class DatasetSeriesObject:
         return cls(*self._args, **self._kwargs)
 
 
-class SimulationTimeSeries(DatasetSeries):
+class SimulationTimeSeries(DatasetSeries, ABC):
     def __init__(self, parameter_filename, find_outputs=False):
         """
         Base class for generating simulation time series types.
@@ -506,19 +508,23 @@ class SimulationTimeSeries(DatasetSeries):
 
         self.print_key_parameters()
 
-    def _set_parameter_defaults(self):
+    def _set_parameter_defaults(self):  # noqa: B027
         pass
 
+    @abstractmethod
     def _parse_parameter_file(self):
         pass
 
+    @abstractmethod
     def _set_units(self):
         pass
 
+    @abstractmethod
     def _calculate_simulation_bounds(self):
         pass
 
-    def _get_all_outputs(**kwargs):
+    @abstractmethod
+    def _get_all_outputs(self, *, find_outputs=False):
         pass
 
     def __repr__(self):

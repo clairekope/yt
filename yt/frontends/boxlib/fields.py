@@ -5,7 +5,6 @@ import numpy as np
 
 from yt._typing import KnownFieldsT
 from yt.fields.field_info_container import FieldInfoContainer
-from yt.frontends.boxlib.misc import BoxlibSetupParticleFieldsMixin
 from yt.units import YTQuantity
 from yt.utilities.physical_constants import amu_cgs, boltzmann_constant_cgs, c
 
@@ -24,31 +23,30 @@ def _thermal_energy_density(field, data):
     ke = (
         0.5
         * (
-            data[("gas", "momentum_density_x")] ** 2
-            + data[("gas", "momentum_density_y")] ** 2
-            + data[("gas", "momentum_density_z")] ** 2
+            data["gas", "momentum_density_x"] ** 2
+            + data["gas", "momentum_density_y"] ** 2
+            + data["gas", "momentum_density_z"] ** 2
         )
-        / data[("gas", "density")]
+        / data["gas", "density"]
     )
-    return data[("boxlib", "eden")] - ke
+    return data["boxlib", "eden"] - ke
 
 
 def _specific_thermal_energy(field, data):
     # This is little e, so we take thermal_energy_density and divide by density
-    return data[("gas", "thermal_energy_density")] / data[("gas", "density")]
+    return data["gas", "thermal_energy_density"] / data["gas", "density"]
 
 
 def _temperature(field, data):
     mu = data.ds.parameters["mu"]
     gamma = data.ds.parameters["gamma"]
-    tr = data[("gas", "thermal_energy_density")] / data[("gas", "density")]
+    tr = data["gas", "thermal_energy_density"] / data["gas", "density"]
     tr *= mu * amu_cgs / boltzmann_constant_cgs
     tr *= gamma - 1.0
     return tr
 
 
 class WarpXFieldInfo(FieldInfoContainer):
-
     known_other_fields: KnownFieldsT = (
         ("Bx", ("T", ["magnetic_field_x", "B_x"], None)),
         ("By", ("T", ["magnetic_field_y", "B_y"], None)),
@@ -99,7 +97,7 @@ class WarpXFieldInfo(FieldInfoContainer):
     def setup_particle_fields(self, ptype):
         def get_mass(field, data):
             species_mass = data.ds.index.parameters[ptype + "_mass"]
-            return data[(ptype, "particle_weight")] * YTQuantity(species_mass, "kg")
+            return data[ptype, "particle_weight"] * YTQuantity(species_mass, "kg")
 
         self.add_field(
             (ptype, "particle_mass"),
@@ -110,7 +108,7 @@ class WarpXFieldInfo(FieldInfoContainer):
 
         def get_charge(field, data):
             species_charge = data.ds.index.parameters[ptype + "_charge"]
-            return data[(ptype, "particle_weight")] * YTQuantity(species_charge, "C")
+            return data[ptype, "particle_weight"] * YTQuantity(species_charge, "C")
 
         self.add_field(
             (ptype, "particle_charge"),
@@ -187,7 +185,7 @@ class NyxFieldInfo(FieldInfoContainer):
     )
 
 
-class BoxlibFieldInfo(FieldInfoContainer, BoxlibSetupParticleFieldsMixin):
+class BoxlibFieldInfo(FieldInfoContainer):
     known_other_fields: KnownFieldsT = (
         ("density", (rho_units, ["density"], None)),
         ("eden", (eden_units, ["total_energy_density"], None)),
@@ -226,6 +224,26 @@ class BoxlibFieldInfo(FieldInfoContainer, BoxlibSetupParticleFieldsMixin):
         # "luminosity",
     )
 
+    def setup_particle_fields(self, ptype):
+        def _get_vel(axis):
+            def velocity(field, data):
+                return (
+                    data[ptype, f"particle_momentum_{axis}"]
+                    / data[ptype, "particle_mass"]
+                )
+
+            return velocity
+
+        for ax in "xyz":
+            self.add_field(
+                (ptype, f"particle_velocity_{ax}"),
+                sampling_type="particle",
+                function=_get_vel(ax),
+                units="code_length/code_time",
+            )
+
+        super().setup_particle_fields(ptype)
+
     def setup_fluid_fields(self):
         unit_system = self.ds.unit_system
         # Now, let's figure out what fields are included.
@@ -256,7 +274,7 @@ class BoxlibFieldInfo(FieldInfoContainer, BoxlibSetupParticleFieldsMixin):
     def setup_momentum_to_velocity(self):
         def _get_vel(axis):
             def velocity(field, data):
-                return data[("boxlib", f"{axis}mom")] / data[("boxlib", "density")]
+                return data["boxlib", f"{axis}mom"] / data["boxlib", "density"]
 
             return velocity
 
@@ -271,7 +289,7 @@ class BoxlibFieldInfo(FieldInfoContainer, BoxlibSetupParticleFieldsMixin):
     def setup_velocity_to_momentum(self):
         def _get_mom(axis):
             def momentum(field, data):
-                return data[("boxlib", f"{axis}vel")] * data[("boxlib", "density")]
+                return data["boxlib", f"{axis}vel"] * data["boxlib", "density"]
 
             return momentum
 
@@ -285,7 +303,6 @@ class BoxlibFieldInfo(FieldInfoContainer, BoxlibSetupParticleFieldsMixin):
 
 
 class CastroFieldInfo(FieldInfoContainer):
-
     known_other_fields: KnownFieldsT = (
         ("density", ("g/cm**3", ["density"], r"\rho")),
         ("xmom", ("g/(cm**2 * s)", ["momentum_density_x"], r"\rho u")),
@@ -363,7 +380,6 @@ class CastroFieldInfo(FieldInfoContainer):
 
 
 class MaestroFieldInfo(FieldInfoContainer):
-
     known_other_fields: KnownFieldsT = (
         ("density", ("g/cm**3", ["density"], None)),
         ("x_vel", ("cm/s", ["velocity_x"], r"\tilde{u}")),
@@ -430,7 +446,15 @@ class MaestroFieldInfo(FieldInfoContainer):
     def setup_fluid_fields(self):
         unit_system = self.ds.unit_system
         # pick the correct temperature field
-        if self.ds.parameters["use_tfromp"]:
+        tfromp = False
+        if "use_tfromp" in self.ds.parameters:
+            # original MAESTRO (F90) code
+            tfromp = self.ds.parameters["use_tfromp"]
+        elif "maestro.use_tfromp" in self.ds.parameters:
+            # new MAESTROeX (C++) code
+            tfromp = self.ds.parameters["maestro.use_tfromp"]
+
+        if tfromp:
             self.alias(
                 ("gas", "temperature"),
                 ("boxlib", "tfromp"),
@@ -464,7 +488,7 @@ class MaestroFieldInfo(FieldInfoContainer):
                     sampling_type="cell",
                     function=func,
                     units=unit_system["density"],
-                    display_name=r"\rho %s" % tex_label,
+                    display_name=rf"\rho {tex_label}",
                 )
 
                 # Most of the time our species will be of the form
@@ -483,7 +507,7 @@ class MaestroFieldInfo(FieldInfoContainer):
 
             elif field.startswith("omegadot("):
                 nice_name, tex_label = _nice_species_name(field)
-                display_name = r"\dot{\omega}\left[%s\right]" % tex_label
+                display_name = rf"\dot{{\omega}}\left[{tex_label}\right]"
                 # Overwrite field to use nicer tex_label'ed display_name
                 self.add_output_field(
                     ("boxlib", field),

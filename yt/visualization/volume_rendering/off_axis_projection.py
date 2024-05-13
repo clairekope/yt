@@ -2,12 +2,15 @@ import numpy as np
 
 from yt.data_objects.api import ImageArray
 from yt.funcs import is_sequence, mylog
+from yt.geometry.oct_geometry_handler import OctreeIndex
 from yt.units.unit_object import Unit  # type: ignore
+from yt.utilities.lib.image_utilities import add_cells_to_image_offaxis
 from yt.utilities.lib.partitioned_grid import PartitionedGrid
 from yt.utilities.lib.pixelization_routines import (
     normalization_2d_utility,
     off_axis_projection_SPH,
 )
+from yt.visualization.volume_rendering.lens import PlaneParallelLens
 
 from .render_source import KDTreeVolumeSource
 from .scene import Scene
@@ -175,7 +178,7 @@ def off_axis_projection(
         if raise_error:
             raise RuntimeError(
                 "Can only perform off-axis projections for SPH fields, "
-                "Received '%s'" % (item,)
+                f"Received {item!r}"
             )
 
         normal = np.array(normal_vector)
@@ -198,6 +201,7 @@ def off_axis_projection(
 
         # if weight is None:
         buf = np.zeros((resolution[0], resolution[1]), dtype="float64")
+        mask = np.ones_like(buf, dtype="uint8")
 
         x_min = center[0] - width[0] / 2
         x_max = center[0] + width[0] / 2
@@ -223,17 +227,16 @@ def off_axis_projection(
                     width.to("code_length").d,
                     chunk[item].in_units(ounits),
                     buf,
+                    mask,
                     normal_vector,
                     north,
                 )
 
             # Assure that the path length unit is in the default length units
-            # for the dataset by scaling the units of the smoothing length
-            path_length_unit = data_source.ds._get_field_info(
-                (ptype, "smoothing_length")
-            ).units
+            # for the dataset by scaling the units of the smoothing length,
+            # which in the above calculation is set to be code_length
             path_length_unit = Unit(
-                path_length_unit, registry=data_source.ds.unit_registry
+                "code_length", registry=data_source.ds.unit_registry
             )
             default_path_length_unit = data_source.ds.unit_system["length"]
             buf *= data_source.ds.quan(1, path_length_unit).in_units(
@@ -262,6 +265,7 @@ def off_axis_projection(
                     width.to("code_length").d,
                     chunk[item].in_units(ounits),
                     buf,
+                    mask,
                     normal_vector,
                     north,
                     weight_field=chunk[weight].in_units(wounits),
@@ -280,6 +284,7 @@ def off_axis_projection(
                     width.to("code_length").d,
                     chunk[weight].to(wounits),
                     weight_buff,
+                    mask,
                     normal_vector,
                     north,
                 )
@@ -327,7 +332,10 @@ def off_axis_projection(
             return temp_weightfield
 
         data_source.ds.field_info.add_field(
-            weightfield, sampling_type="cell", function=_make_wf(item, weight)
+            weightfield,
+            sampling_type="cell",
+            function=_make_wf(item, weight),
+            units="",
         )
         # Now we have to tell the dataset to add it and to calculate
         # its dependencies..
@@ -375,32 +383,103 @@ def off_axis_projection(
         fields.append(vol.weight_field)
 
     mylog.debug("Casting rays")
+    index = data_source.ds.index
+    lens = camera.lens
 
-    for (grid, mask) in data_source.blocks:
-        data = []
-        for f in fields:
-            # strip units before multiplying by mask for speed
-            grid_data = grid[f]
-            units = grid_data.units
-            data.append(data_source.ds.arr(grid_data.d * mask, units, dtype="float64"))
-        pg = PartitionedGrid(
-            grid.id,
-            data,
-            mask.astype("uint8"),
-            grid.LeftEdge,
-            grid.RightEdge,
-            grid.ActiveDimensions.astype("int64"),
+    # This implementation is optimized for octrees with plane-parallel lenses
+    # and implicitely assumes that the cells are cubic.
+    # NOTE: we should be able to relax the cubic assumption to a rectangular
+    #       assumption (if all cells have the same aspect ratio) with some
+    #       renormalization of the coordinates and the projection axes.
+    #       This is NOT done in the following.
+    dom_width = data_source.ds.domain_width
+    cubic_domain = dom_width.max() == dom_width.min()
+    if (
+        isinstance(index, OctreeIndex)
+        and isinstance(lens, PlaneParallelLens)
+        and cubic_domain
+    ):
+        fields.extend(("index", k) for k in "xyz")
+        fields.append(("index", "dx"))
+
+        data_source.get_data(fields)
+        # We need the width of the plot window in projected coordinates,
+        # i.e. we ignore the z-component
+        wmax = width[:2].max()
+
+        # Normalize the positions & dx so that they are in the range [-0.5, 0.5]
+        xyz = np.stack(
+            [
+                ((data_source["index", k] - center[i]) / wmax).to("1").d
+                for i, k in enumerate("xyz")
+            ],
+            axis=-1,
         )
-        grid.clear_data()
-        vol.sampler(pg, num_threads=num_threads)
 
-    image = vol.finalize_image(camera, vol.sampler.aimage)
-    image = ImageArray(
-        image, funits, registry=data_source.ds.unit_registry, info=image.info
-    )
+        for idim, periodic in enumerate(data_source.ds.periodicity):
+            if not periodic:
+                continue
+            # Wrap into [-0.5, +0.5]
+            xyz[..., idim] = (xyz[..., idim] + 0.5) % 1 - 0.5
 
-    if weight is not None:
-        data_source.ds.field_info.pop(("index", "temp_weightfield"))
+        dx = (data_source["index", "dx"] / wmax).to("1").d
+
+        if vol.weight_field is None:
+            weight_field = np.ones_like(dx)
+        else:
+            weight_field = data_source[vol.weight_field]
+
+        projected_weighted_qty = np.zeros(resolution)
+        projected_weight = np.zeros(resolution)
+
+        add_cells_to_image_offaxis(
+            Xp=xyz,
+            dXp=dx,
+            qty=data_source[vol.field],
+            weight=weight_field,
+            rotation=camera.inv_mat.T,
+            buffer=projected_weighted_qty,
+            buffer_weight=projected_weight,
+            Nx=resolution[0],
+            Ny=resolution[1],
+        )
+        image = ImageArray(
+            data_source.ds.arr(
+                np.stack([projected_weighted_qty, projected_weight], axis=-1),
+                "dimensionless",
+            ),
+            funits,
+            registry=data_source.ds.unit_registry,
+            info={"imtype": "rendering"},
+        )
+    else:
+        for grid, mask in data_source.blocks:
+            data = []
+            for f in fields:
+                # strip units before multiplying by mask for speed
+                grid_data = grid[f]
+                units = grid_data.units
+                data.append(
+                    data_source.ds.arr(grid_data.d * mask, units, dtype="float64")
+                )
+            pg = PartitionedGrid(
+                grid.id,
+                data,
+                mask.astype("uint8"),
+                grid.LeftEdge,
+                grid.RightEdge,
+                grid.ActiveDimensions.astype("int64"),
+            )
+            grid.clear_data()
+            vol.sampler(pg, num_threads=num_threads)
+
+        image = vol.finalize_image(camera, vol.sampler.aimage)
+        image = ImageArray(
+            image, funits, registry=data_source.ds.unit_registry, info=image.info
+        )
+
+        if weight is not None:
+            data_source.ds.field_info.pop(("index", "temp_weightfield"))
 
     if method == "integrate":
         if weight is None:

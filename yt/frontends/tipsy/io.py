@@ -3,7 +3,6 @@ import os
 import struct
 
 import numpy as np
-from numpy.lib.recfunctions import append_fields
 
 from yt.frontends.sph.io import IOHandlerSPH
 from yt.frontends.tipsy.definitions import npart_mapping
@@ -86,12 +85,8 @@ class IOHandlerTipsyBinary(IOHandlerSPH):
         return rv
 
     def _read_particle_coords(self, chunks, ptf):
-        data_files = set()
-        for chunk in chunks:
-            for obj in chunk.objs:
-                data_files.update(obj.data_files)
         chunksize = self.ds.index.chunksize
-        for data_file in sorted(data_files, key=lambda x: (x.filename, x.start)):
+        for data_file in self._sorted_chunk_iterator(chunks):
             poff = data_file.field_offsets
             tp = data_file.total_particles
             f = open(data_file.filename, "rb")
@@ -152,6 +147,7 @@ class IOHandlerTipsyBinary(IOHandlerSPH):
         return self._read_smoothing_length(data_file, shape[0])
 
     def _read_particle_data_file(self, data_file, ptf, selector=None):
+        from numpy.lib.recfunctions import append_fields
 
         return_data = {}
 
@@ -182,14 +178,11 @@ class IOHandlerTipsyBinary(IOHandlerSPH):
                         )
                     )
                 else:
-                    par = self.ds.parameters
-                    nlines = 1 + par["nsph"] + par["ndark"] + par["nstar"]
                     aux_fh[afield].seek(0)
                     sh = aux_fields_offsets[afield][ptype]
-                    sf = nlines - count - sh
                     if tp[ptype] > 0:
                         aux = np.genfromtxt(
-                            aux_fh[afield], skip_header=sh, skip_footer=sf
+                            aux_fh[afield], skip_header=sh, max_rows=count
                         )
                         if aux.ndim < 1:
                             aux = np.array([aux])
@@ -212,7 +205,7 @@ class IOHandlerTipsyBinary(IOHandlerSPH):
                 continue
             tf = self._fill_fields(field_list, p, hsml, mask, data_file)
             for field in field_list:
-                return_data[(ptype, field)] = tf.pop(field)
+                return_data[ptype, field] = tf.pop(field)
 
         # close all file handles
         f.close()
@@ -329,7 +322,7 @@ class IOHandlerTipsyBinary(IOHandlerSPH):
         if None not in (si, ei):
             np.clip(pcount - si, 0, ei - si, out=pcount)
         ptypes = ["Gas", "Stars", "DarkMatter"]
-        npart = {ptype: v for ptype, v in zip(ptypes, pcount)}
+        npart = dict(zip(ptypes, pcount))
         return npart
 
     @classmethod
@@ -419,7 +412,7 @@ class IOHandlerTipsyBinary(IOHandlerSPH):
             self._aux_fields.remove(afield)
         # Add the auxiliary fields to each ptype we have
         for ptype in self._ptypes:
-            if any([ptype == field[0] for field in self._field_list]):
+            if any(ptype == field[0] for field in self._field_list):
                 self._field_list += [(ptype, afield) for afield in self._aux_fields]
         return self._field_list
 

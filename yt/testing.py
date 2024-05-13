@@ -13,7 +13,6 @@ from unittest import SkipTest
 
 import matplotlib
 import numpy as np
-import pytest
 from more_itertools import always_iterable
 from numpy.random import RandomState
 from unyt.exceptions import UnitOperationError
@@ -24,21 +23,25 @@ from yt.funcs import is_sequence
 from yt.loaders import load
 from yt.units.yt_array import YTArray, YTQuantity
 
-# we import this in a weird way from numpy.testing to avoid triggering
-# flake8 errors from the unused imports. These test functions are imported
-# elsewhere in yt from here so we want them to be imported here.
-from numpy.testing import assert_array_equal, assert_almost_equal  # NOQA isort:skip
-from numpy.testing import assert_equal, assert_array_less  # NOQA isort:skip
-from numpy.testing import assert_string_equal  # NOQA isort:skip
-from numpy.testing import assert_array_almost_equal_nulp  # isort:skip
-from numpy.testing import assert_allclose, assert_raises  # NOQA isort:skip
-from numpy.testing import assert_approx_equal  # NOQA isort:skip
-from numpy.testing import assert_array_almost_equal  # NOQA isort:skip
-
 ANSWER_TEST_TAG = "answer_test"
+
+
 # Expose assert_true and assert_less_equal from unittest.TestCase
 # this is adopted from nose. Doing this here allows us to avoid importing
 # nose at the top level.
+def _deprecated_assert_func(func):
+    @wraps(func)
+    def retf(*args, **kwargs):
+        issue_deprecation_warning(
+            f"yt.testing.{func.__name__} is deprecated",
+            since="4.2",
+            stacklevel=3,
+        )
+        return func(*args, **kwargs)
+
+    return retf
+
+
 class _Dummy(unittest.TestCase):
     def nop(self):
         pass
@@ -46,11 +49,13 @@ class _Dummy(unittest.TestCase):
 
 _t = _Dummy("nop")
 
-assert_true = _t.assertTrue
-assert_less_equal = _t.assertLessEqual
+assert_true = _deprecated_assert_func(_t.assertTrue)
+assert_less_equal = _deprecated_assert_func(_t.assertLessEqual)
 
 
 def assert_rel_equal(a1, a2, decimals, err_msg="", verbose=True):
+    from numpy.testing import assert_almost_equal
+
     # We have nan checks in here because occasionally we have fields that get
     # weighted without non-zero weights.  I'm looking at you, particle fields!
     if isinstance(a1, np.ndarray):
@@ -149,15 +154,19 @@ def amrspace(extent, levels=7, cells=8):
     # fill non-zero dims
     dcell = 1.0 / cells
     left_slice = tuple(
-        slice(extent[2 * n], extent[2 * n + 1], extent[2 * n + 1])
-        if dims_zero[n]
-        else slice(0.0, 1.0, dcell)
+        (
+            slice(extent[2 * n], extent[2 * n + 1], extent[2 * n + 1])
+            if dims_zero[n]
+            else slice(0.0, 1.0, dcell)
+        )
         for n in range(ndims)
     )
     right_slice = tuple(
-        slice(extent[2 * n + 1], extent[2 * n], -extent[2 * n + 1])
-        if dims_zero[n]
-        else slice(dcell, 1.0 + dcell, dcell)
+        (
+            slice(extent[2 * n + 1], extent[2 * n], -extent[2 * n + 1])
+            if dims_zero[n]
+            else slice(dcell, 1.0 + dcell, dcell)
+        )
         for n in range(ndims)
     )
     left_norm_grid = np.reshape(np.mgrid[left_slice].T.flat[ndims:], (-1, ndims))
@@ -299,6 +308,7 @@ _geom_transforms = {
     "polar": ((0.0, 0.0, 0.0), (1.0, 2.0 * np.pi, 1.0)),  # rtz
     "geographic": ((-90.0, -180.0, 0.0), (90.0, 180.0, 1000.0)),  # latlonalt
     "internal_geographic": ((-90.0, -180.0, 0.0), (90.0, 180.0, 1000.0)),  # latlondep
+    "spectral_cube": ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
 }
 
 
@@ -331,9 +341,12 @@ def fake_amr_ds(
         level, left_edge, right_edge, dims = gspec
         left_edge = left_edge * (RE - LE) + LE
         right_edge = right_edge * (RE - LE) + LE
-        gdata = dict(
-            level=level, left_edge=left_edge, right_edge=right_edge, dimensions=dims
-        )
+        gdata = {
+            "level": level,
+            "left_edge": left_edge,
+            "right_edge": right_edge,
+            "dimensions": dims,
+        }
         for f, u in zip(fields, units):
             gdata[f] = (prng.random_sample(dims), u)
         if particles:
@@ -425,11 +438,11 @@ def fake_tetrahedral_ds():
     # the distance from the origin
     node_data = {}
     dist = np.sum(_coordinates**2, 1)
-    node_data[("connect1", "test")] = dist[_connectivity]
+    node_data["connect1", "test"] = dist[_connectivity]
 
     # each element gets a random number
     elem_data = {}
-    elem_data[("connect1", "elem")] = prng.rand(_connectivity.shape[0])
+    elem_data["connect1", "elem"] = prng.rand(_connectivity.shape[0])
 
     ds = load_unstructured_mesh(
         _connectivity, _coordinates, node_data=node_data, elem_data=elem_data
@@ -448,14 +461,14 @@ def fake_hexahedral_ds(fields=None):
     # the distance from the origin
     node_data = {}
     dist = np.sum(_coordinates**2, 1)
-    node_data[("connect1", "test")] = dist[_connectivity - 1]
+    node_data["connect1", "test"] = dist[_connectivity - 1]
 
     for field in always_iterable(fields):
-        node_data[("connect1", field)] = dist[_connectivity - 1]
+        node_data["connect1", field] = dist[_connectivity - 1]
 
     # each element gets a random number
     elem_data = {}
-    elem_data[("connect1", "elem")] = prng.rand(_connectivity.shape[0])
+    elem_data["connect1", "elem"] = prng.rand(_connectivity.shape[0])
 
     ds = load_unstructured_mesh(
         _connectivity - 1, _coordinates, node_data=node_data, elem_data=elem_data
@@ -483,10 +496,30 @@ def small_fake_hexahedral_ds():
     # the distance from the origin
     node_data = {}
     dist = np.sum(_coordinates**2, 1)
-    node_data[("connect1", "test")] = dist[_connectivity - 1]
+    node_data["connect1", "test"] = dist[_connectivity - 1]
 
     ds = load_unstructured_mesh(_connectivity - 1, _coordinates, node_data=node_data)
     return ds
+
+
+def fake_stretched_ds(N=16):
+    from yt.loaders import load_uniform_grid
+
+    rng = np.random.default_rng(seed=0x4D3D3D3)
+
+    data = {"density": rng.random((N, N, N))}
+
+    cell_widths = []
+    for _ in range(3):
+        cw = rng.random(N)
+        cw /= cw.sum()
+        cell_widths.append(cw)
+    return load_uniform_grid(
+        data,
+        [N, N, N],
+        bbox=np.array([[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]]),
+        cell_widths=cell_widths,
+    )
 
 
 def fake_vr_orientation_test_ds(N=96, scale=1):
@@ -572,7 +605,7 @@ def fake_vr_orientation_test_ds(N=96, scale=1):
         )
         arr[idx] = 0.6
 
-    data = dict(density=(arr, "g/cm**3"))
+    data = {"density": (arr, "g/cm**3")}
     ds = load_uniform_grid(data, arr.shape, bbox=bbox)
     return ds
 
@@ -690,7 +723,7 @@ def fake_octree_ds(
     velocity_unit=None,
     magnetic_unit=None,
     periodicity=(True, True, True),
-    over_refine_factor=1,
+    num_zones=2,
     partial_coverage=1,
     unit_system="cgs",
 ):
@@ -703,10 +736,10 @@ def fake_octree_ds(
 
     if quantities is None:
         quantities = {}
-        quantities[("gas", "density")] = prng.random_sample((particles, 1))
-        quantities[("gas", "velocity_x")] = prng.random_sample((particles, 1))
-        quantities[("gas", "velocity_y")] = prng.random_sample((particles, 1))
-        quantities[("gas", "velocity_z")] = prng.random_sample((particles, 1))
+        quantities["gas", "density"] = prng.random_sample((particles, 1))
+        quantities["gas", "velocity_x"] = prng.random_sample((particles, 1))
+        quantities["gas", "velocity_y"] = prng.random_sample((particles, 1))
+        quantities["gas", "velocity_z"] = prng.random_sample((particles, 1))
 
     ds = load_octree(
         octree_mask=octree_mask,
@@ -720,7 +753,7 @@ def fake_octree_ds(
         magnetic_unit=magnetic_unit,
         periodicity=periodicity,
         partial_coverage=partial_coverage,
-        over_refine_factor=over_refine_factor,
+        num_zones=num_zones,
         unit_system=unit_system,
     )
     return ds
@@ -814,6 +847,10 @@ def expand_keywords(keywords, full=False):
     ...     write_projection(*args, **kwargs)
     """
 
+    issue_deprecation_warning(
+        "yt.testing.expand_keywords is deprecated", since="4.2", stacklevel=3
+    )
+
     # if we want every possible combination of keywords, use iter magic
     if full:
         keys = sorted(keywords)
@@ -840,7 +877,7 @@ def expand_keywords(keywords, full=False):
         # the possible values of the kwargs
 
         # initialize array
-        list_of_kwarg_dicts = np.array([dict() for x in range(num_lists)])
+        list_of_kwarg_dicts = np.array([{} for x in range(num_lists)])
 
         # fill in array
         for i in np.arange(num_lists):
@@ -906,15 +943,12 @@ def requires_module_pytest(*module_names):
 
     So that it can be later renamed to `requires_module`.
     """
-    from yt.utilities import on_demand_imports as odi
+    # note: import pytest here so that it is not a hard requirement for
+    # importing yt.testing see https://github.com/yt-project/yt/issues/4507
+    import pytest
 
     def deco(func):
-        missing = [
-            name
-            for name in module_names
-            if not getattr(odi, f"_{name}").__is_available__
-            for name in module_names
-        ]
+        missing = [name for name in module_names if find_spec(name) is None]
 
         # note that order between these two decorators matters
         @pytest.mark.skipif(
@@ -956,6 +990,8 @@ def disable_dataset_cache(func):
 
 @disable_dataset_cache
 def units_override_check(fn):
+    from numpy.testing import assert_equal
+
     units_list = ["length", "time", "mass", "velocity", "magnetic", "temperature"]
     ds1 = load(fn)
     units_override = {}
@@ -1097,7 +1133,9 @@ def check_results(func):
 
         return _func
 
-    from yt.mods import unparsed_args
+    import yt.startup_tasks as _startup_tasks
+
+    unparsed_args = _startup_tasks.unparsed_args
 
     if "--answer-reference" in unparsed_args:
         return compute_results(func)
@@ -1105,6 +1143,8 @@ def check_results(func):
     def compare_results(func):
         @wraps(func)
         def _func(*args, **kwargs):
+            from numpy.testing import assert_allclose, assert_equal
+
             name = kwargs.pop("result_basename", func.__name__)
             rv = func(*args, **kwargs)
             if hasattr(rv, "convert_to_base"):
@@ -1164,7 +1204,8 @@ def run_nose(
         "yt.run_nose (aka yt.testing.run_nose) is deprecated. "
         "Please do not rely on this function as it will be removed "
         "in the process of migrating yt tests from nose to pytest.",
-        since="4.1.0",
+        stacklevel=3,
+        since="4.1",
     )
 
     from yt.utilities.logger import ytLogger as mylog
@@ -1235,6 +1276,8 @@ def assert_allclose_units(actual, desired, rtol=1e-7, atol=0, **kwargs):
     function for details.
 
     """
+    from numpy.testing import assert_allclose
+
     # Create a copy to ensure this function does not alter input arrays
     act = YTArray(actual)
     des = YTArray(desired)
@@ -1243,8 +1286,8 @@ def assert_allclose_units(actual, desired, rtol=1e-7, atol=0, **kwargs):
         des = des.in_units(act.units)
     except UnitOperationError as e:
         raise AssertionError(
-            "Units of actual (%s) and desired (%s) do not have "
-            "equivalent dimensions" % (act.units, des.units)
+            f"Units of actual ({act.units}) and desired ({des.units}) "
+            "do not have equivalent dimensions"
         ) from e
 
     rt = YTArray(rtol)
@@ -1258,8 +1301,8 @@ def assert_allclose_units(actual, desired, rtol=1e-7, atol=0, **kwargs):
         at = at.in_units(act.units)
     except UnitOperationError as e:
         raise AssertionError(
-            "Units of atol (%s) and actual (%s) do not have "
-            "equivalent dimensions" % (at.units, act.units)
+            f"Units of atol ({at.units}) and actual ({act.units}) "
+            "do not have equivalent dimensions"
         ) from e
 
     # units have been validated, so we strip units before calling numpy
@@ -1298,12 +1341,9 @@ def assert_fname(fname):
 
     extension = os.path.splitext(fname)[1]
 
-    assert (
-        image_type == extension
-    ), "Expected an image of type '{}' but '{}' is an image of type '{}'".format(
-        extension,
-        fname,
-        image_type,
+    assert image_type == extension, (
+        f"Expected an image of type {extension!r} but {fname!r} "
+        "is an image of type {image_type!r}"
     )
 
 
@@ -1383,6 +1423,8 @@ class ParticleSelectionComparison:
         self.hsml = hsml
 
     def compare_dobj_selection(self, dobj):
+        from numpy.testing import assert_array_almost_equal_nulp
+
         for ptype in sorted(self.particles):
             x, y, z = self.particles[ptype].T
             # Set our radii to zero for now, I guess?
@@ -1404,7 +1446,9 @@ class ParticleSelectionComparison:
             # NULP should be OK.  This is mostly for stuff like Rockstar, where
             # the f32->f64 casting happens at different places depending on
             # which code path we use.
-            assert_array_almost_equal_nulp(sel_pos, obj_results, 5)
+            assert_array_almost_equal_nulp(
+                np.asarray(sel_pos), np.asarray(obj_results), 5
+            )
 
     def run_defaults(self):
         """
@@ -1479,3 +1523,63 @@ class ParticleSelectionComparison:
             (0.0 + LE[2], "unitary") : (0.1 + LE[2], "unitary"),
         ]
         self.compare_dobj_selection(reg3)
+
+
+def _deprecated_numpy_testing_reexport(func):
+    import numpy.testing as npt
+
+    npt_func = getattr(npt, func.__name__)
+
+    @wraps(npt_func)
+    def retf(*args, **kwargs):
+        __tracebackhide__ = True  # Hide traceback for pytest
+        issue_deprecation_warning(
+            f"yt.testing.{func.__name__} is a pure re-export of "
+            f"numpy.testing.{func.__name__}, it will stop working in the future. "
+            "Please import this function directly from numpy instead.",
+            since="4.2",
+            stacklevel=3,
+        )
+        return npt_func(*args, **kwargs)
+
+    return retf
+
+
+@_deprecated_numpy_testing_reexport
+def assert_array_equal(): ...
+
+
+@_deprecated_numpy_testing_reexport
+def assert_almost_equal(): ...
+
+
+@_deprecated_numpy_testing_reexport
+def assert_equal(): ...
+
+
+@_deprecated_numpy_testing_reexport
+def assert_array_less(): ...
+
+
+@_deprecated_numpy_testing_reexport
+def assert_string_equal(): ...
+
+
+@_deprecated_numpy_testing_reexport
+def assert_array_almost_equal_nulp(): ...
+
+
+@_deprecated_numpy_testing_reexport
+def assert_allclose(): ...
+
+
+@_deprecated_numpy_testing_reexport
+def assert_raises(): ...
+
+
+@_deprecated_numpy_testing_reexport
+def assert_approx_equal(): ...
+
+
+@_deprecated_numpy_testing_reexport
+def assert_array_almost_equal(): ...

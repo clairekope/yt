@@ -1,5 +1,3 @@
-from uuid import uuid4
-
 import numpy as np
 
 from yt.data_objects.static_output import ParticleFile
@@ -15,6 +13,7 @@ class SwiftParticleFile(ParticleFile):
 
 
 class SwiftDataset(SPHDataset):
+    _load_requirements = ["h5py"]
     _index_class = SPHParticleIndex
     _field_info_class = SPHFieldInfo
     _file_class = SwiftParticleFile
@@ -34,7 +33,6 @@ class SwiftDataset(SPHDataset):
         unit_system="cgs",
         default_species_fields=None,
     ):
-
         super().__init__(
             filename,
             dataset_type,
@@ -96,9 +94,6 @@ class SwiftDataset(SPHDataset):
         The header information from the HDF5 file is stored in an un-parsed
         format in self.parameters should users wish to use it.
         """
-
-        self.unique_identifier = uuid4()
-
         # Read from the HDF5 file, this gives us all the info we need. The rest
         # of this function is just parsing.
         header = self._get_info_attributes("Header")
@@ -158,14 +153,14 @@ class SwiftDataset(SPHDataset):
             self.hubble_constant = 0.0
 
         # Store the un-parsed information should people want it.
-        self.parameters = dict(
-            header=header,
-            runtime_parameters=runtime_parameters,
-            policy=policy,
-            parameters=parameters,
-            hydro=hydro,
-            subgrid=subgrid,
-        )
+        self.parameters = {
+            "header": header,
+            "runtime_parameters": runtime_parameters,
+            "policy": policy,
+            "parameters": parameters,
+            "hydro": hydro,
+            "subgrid": subgrid,
+        }
 
         # SWIFT never has multi file snapshots
         self.file_count = 1
@@ -174,19 +169,22 @@ class SwiftDataset(SPHDataset):
         return
 
     @classmethod
-    def _is_valid(cls, filename, *args, **kwargs):
+    def _is_valid(cls, filename: str, *args, **kwargs) -> bool:
         """
         Checks to see if the file is a valid output from SWIFT.
         This requires the file to have the Code attribute set in the
         Header dataset to "SWIFT".
         """
+        if cls._missing_load_requirements():
+            return False
+
         valid = True
         # Attempt to open the file, if it's not a hdf5 then this will fail:
         try:
             handle = h5py.File(filename, mode="r")
             valid = handle["Header"].attrs["Code"].decode("utf-8") == "SWIFT"
             handle.close()
-        except (OSError, KeyError, ImportError):
+        except (OSError, KeyError):
             valid = False
 
         return valid
