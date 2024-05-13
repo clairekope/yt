@@ -85,6 +85,10 @@ class EnzoFieldInfo(FieldInfoContainer):
         ("PotentialField", ("code_velocity**2", ["gravitational_potential"], None)),
         ("Density", (rho_units, ["density"], None)),
         ("Metal_Density", (rho_units, ["metal_density"], None)),
+        ("MetalAGB_Density", (rho_units, ["metal_density_AGB"], None)),
+        ("MetalMassive_Density", (rho_units, ["metal_density_OB"], None)),
+        ("MetalSNII_Density", (rho_units, ["metal_density_SNII"], None)),
+        ("MetalSNIa_Density", (rho_units, ["metal_density_SNIa"], None)),
         ("SN_Colour", (rho_units, [], None)),
         # Note: we do not alias Electron_Density to anything
         ("Electron_Density", (rho_units, [], None)),
@@ -176,6 +180,82 @@ class EnzoFieldInfo(FieldInfoContainer):
             self.add_species_field(sp)
             self.species_names.append(known_species_names[sp])
         self.species_names.sort()  # bb #1059
+        
+    def setup_metal_fields(self):
+        params = self.ds.parameters
+        metal_sources = params.get("StarFeedbackTrackMetalSources", None)
+        if metal_sources:
+            def _metallicity_AGB(field, data):
+                return data["gas", "metal_density_AGB"] / data["gas", "density"]
+            def _metallicity_OB(field, data):
+                return data["gas", "metal_density_OB"] / data["gas", "density"]
+            def _metallicity_SNII(field, data):
+                return data["gas", "metal_density_SNII"] / data["gas", "density"]
+            def _metallicity_SNIa(field, data):
+                return data["gas", "metal_density_SNIa"] / data["gas", "density"]
+            
+            self.add_field(
+                ("gas","metallicity_AGB"),
+                sampling_type="cell",
+                function=_metallicity_AGB,
+                units="Z_sun"
+            )
+            self.add_field(
+                ("gas","metallicity_OB"),
+                sampling_type="cell",
+                function=_metallicity_OB,
+                units="Z_sun"
+            )
+            self.add_field(
+                ("gas","metallicity_SNII"),
+                sampling_type="cell",
+                function=_metallicity_SNII,
+                units="Z_sun"
+            )
+            self.add_field(
+                ("gas","metallicity_SNIa"),
+                sampling_type="cell",
+                function=_metallicity_SNIa,
+                units="Z_sun"
+            )
+
+            def _metal_mass_AGB(field, data):
+                Z = data["gas", "metallicity_AGB"].to("dimensionless")
+                return Z * data["gas", "mass"]
+            def _metal_mass_OB(field, data):
+                Z = data["gas", "metallicity_OB"].to("dimensionless")
+                return Z * data["gas", "mass"]
+            def _metal_mass_SNII(field, data):
+                Z = data["gas", "metallicity_SNII"].to("dimensionless")
+                return Z * data["gas", "mass"]
+            def _metal_mass_SNIa(field, data):
+                Z = data["gas", "metallicity_SNIa"].to("dimensionless")
+                return Z * data["gas", "mass"]
+            
+            self.add_field(
+                ("gas","metal_mass_AGB"),
+                sampling_type="cell",
+                function=_metal_mass_AGB,
+                units=self.ds.unit_system["mass"]
+            )
+            self.add_field(
+                ("gas","metal_mass_OB"),
+                sampling_type="cell",
+                function=_metal_mass_OB,
+                units=self.ds.unit_system["mass"]
+            )
+            self.add_field(
+                ("gas","metal_mass_SNII"),
+                sampling_type="cell",
+                function=_metal_mass_SNII,
+                units=self.ds.unit_system["mass"]
+            )
+            self.add_field(
+                ("gas","metal_mass_SNIa"),
+                sampling_type="cell",
+                function=_metal_mass_SNIa,
+                units=self.ds.unit_system["mass"]
+            )
 
     def setup_fluid_fields(self):
         from yt.fields.magnetic_field import setup_magnetic_field_aliases
@@ -189,6 +269,7 @@ class EnzoFieldInfo(FieldInfoContainer):
         if multi_species > 0 or dengo == 1:
             self.setup_species_fields()
         self.setup_energy_field()
+        self.setup_metal_fields()
         setup_magnetic_field_aliases(self, "enzo", [f"B{ax}" for ax in "xyz"])
 
     def setup_energy_field(self):

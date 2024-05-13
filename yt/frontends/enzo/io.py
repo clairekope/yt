@@ -7,7 +7,7 @@ from yt.utilities.io_handler import BaseIOHandler
 from yt.utilities.logger import ytLogger as mylog
 from yt.utilities.on_demand_imports import _h5py as h5py
 
-_convert_mass = ("particle_initial_mass", "particle_mass", "mass")
+_convert_mass = ("particle_mass", "mass", "particle_initial_mass")
 
 _particle_position_names: Dict[str, str] = {}
 
