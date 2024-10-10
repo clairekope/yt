@@ -86,7 +86,7 @@ class EnzoFieldInfo(FieldInfoContainer):
         ("Density", (rho_units, ["density"], None)),
         ("Metal_Density", (rho_units, ["metal_density"], None)),
         ("MetalAGB_Density", (rho_units, ["metal_density_AGB"], None)),
-        ("MetalMassive_Density", (rho_units, ["metal_density_OB"], None)),
+        ("MetalNSM_Density", (rho_units, ["metal_density_NSM"], None)),
         ("MetalSNII_Density", (rho_units, ["metal_density_SNII"], None)),
         ("MetalSNIa_Density", (rho_units, ["metal_density_SNIa"], None)),
         ("SN_Colour", (rho_units, [], None)),
@@ -187,8 +187,8 @@ class EnzoFieldInfo(FieldInfoContainer):
         if metal_sources:
             def _metallicity_AGB(field, data):
                 return data["gas", "metal_density_AGB"] / data["gas", "density"]
-            def _metallicity_OB(field, data):
-                return data["gas", "metal_density_OB"] / data["gas", "density"]
+            def _metallicity_NSM(field, data):
+                return data["gas", "metal_density_NSM"] / data["gas", "density"]
             def _metallicity_SNII(field, data):
                 return data["gas", "metal_density_SNII"] / data["gas", "density"]
             def _metallicity_SNIa(field, data):
@@ -201,9 +201,9 @@ class EnzoFieldInfo(FieldInfoContainer):
                 units="Z_sun"
             )
             self.add_field(
-                ("gas","metallicity_OB"),
+                ("gas","metallicity_NSM"),
                 sampling_type="cell",
-                function=_metallicity_OB,
+                function=_metallicity_NSM,
                 units="Z_sun"
             )
             self.add_field(
@@ -222,8 +222,8 @@ class EnzoFieldInfo(FieldInfoContainer):
             def _metal_mass_AGB(field, data):
                 Z = data["gas", "metallicity_AGB"].to("dimensionless")
                 return Z * data["gas", "mass"]
-            def _metal_mass_OB(field, data):
-                Z = data["gas", "metallicity_OB"].to("dimensionless")
+            def _metal_mass_NSM(field, data):
+                Z = data["gas", "metallicity_NSM"].to("dimensionless")
                 return Z * data["gas", "mass"]
             def _metal_mass_SNII(field, data):
                 Z = data["gas", "metallicity_SNII"].to("dimensionless")
@@ -239,9 +239,9 @@ class EnzoFieldInfo(FieldInfoContainer):
                 units=self.ds.unit_system["mass"]
             )
             self.add_field(
-                ("gas","metal_mass_OB"),
+                ("gas","metal_mass_NSM"),
                 sampling_type="cell",
-                function=_metal_mass_OB,
+                function=_metal_mass_NSM,
                 units=self.ds.unit_system["mass"]
             )
             self.add_field(
