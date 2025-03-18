@@ -33,8 +33,8 @@ if TYPE_CHECKING:
 
 
 def sanitize_weight_field(ds, field, weight):
-    field_object = ds._get_field_info(field)
     if weight is None:
+        field_object = ds._get_field_info(field)
         if field_object.sampling_type == "particle":
             if field_object.name[0] == "gas":
                 ptype = ds._sph_ptypes[0]
@@ -87,7 +87,7 @@ class YTDataContainer(abc.ABC):
         # constructor, in which case it will override the default.
         # This code ensures it is never not set.
 
-        self.ds: "Dataset"
+        self.ds: Dataset
         if ds is not None:
             self.ds = ds
         else:
@@ -797,7 +797,7 @@ class YTDataContainer(abc.ABC):
             # tuples containing some sort of special "any" ParticleGroup
             unambiguous_fields_to_include = []
             unambiguous_fields_units = []
-            for field, field_unit in zip(fields_to_include, fields_units):
+            for field, field_unit in zip(fields_to_include, fields_units, strict=True):
                 if isinstance(field, tuple):
                     # skip tuples, they'll be checked with _determine_fields
                     unambiguous_fields_to_include.append(field)
@@ -849,7 +849,7 @@ class YTDataContainer(abc.ABC):
             field_names = []
 
             ## explicitly go after the fields we want
-            for field, units in zip(fields_to_include, fields_units):
+            for field, units in zip(fields_to_include, fields_units, strict=True):
                 ## Only interested in fields with the current particle type,
                 ## whether that means general fields or field tuples
                 ftype, fname = field

@@ -5,7 +5,7 @@ import os
 import pprint
 import sys
 import textwrap
-from typing import Any, Optional, Union
+from typing import Any
 
 import numpy as np
 from more_itertools import always_iterable
@@ -185,12 +185,12 @@ class YTCommandSubtype(type):
 
 
 class YTCommand(metaclass=YTCommandSubtype):
-    args: tuple[Union[str, dict[str, Any]], ...] = ()
-    name: Optional[Union[str, list[str]]] = None
+    args: tuple[str | dict[str, Any], ...] = ()
+    name: str | list[str] | None = None
     description: str = ""
     aliases = ()
     ndatasets: int = 1
-    subparser: Optional[str] = None
+    subparser: str | None = None
 
     @classmethod
     def run(cls, args):
@@ -231,7 +231,7 @@ class GetParameterFiles(argparse.Action):
             datasets = values
         elif len(values) == 2 and namespace.basename is not None:
             datasets = [
-                "%s%04i" % (namespace.basename, r)
+                f"{namespace.basename}{r:04}"
                 for r in range(int(values[0]), int(values[1]), namespace.skip)
             ]
         else:
@@ -1223,7 +1223,7 @@ class YTConfigLocalConfigHandler:
         local_arg_exists = hasattr(args, "local")
         global_arg_exists = hasattr(args, "global")
 
-        config_file: Optional[str] = None
+        config_file: str | None = None
         if getattr(args, "local", False):
             config_file = local_config_file
         elif getattr(args, "global", False):
@@ -1398,7 +1398,7 @@ class YTSearchCmd(YTCommand):
 
         candidates = []
         for base, dirs, files in os.walk(".", followlinks=True):
-            print("(% 10i candidates) Examining %s" % (len(candidates), base))
+            print(f"({len(candidates):>10} candidates) Examining {base}")
             recurse = []
             if args.check_all:
                 candidates.extend([os.path.join(base, _) for _ in files])
@@ -1412,7 +1412,7 @@ class YTSearchCmd(YTCommand):
         # and try to load each one.
         records = []
         for i, c in enumerate(sorted(candidates)):
-            print("(% 10i/% 10i) Evaluating %s" % (i, len(candidates), c))
+            print(f"({i:>10}/{len(candidates):>10}) Evaluating {c}")
             try:
                 record = get_metadata(c, args.full_output)
             except YTUnidentifiedDataType:

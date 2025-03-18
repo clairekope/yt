@@ -2,7 +2,6 @@ import abc
 import glob
 import os
 from functools import cached_property
-from typing import Optional
 
 from yt.config import ytcfg
 from yt.funcs import mylog
@@ -142,14 +141,14 @@ class FieldFileHandler(abc.ABC, HandlerMixin):
     _file_type = "field"
 
     # These properties are static properties
-    ftype: Optional[str] = None  # The name to give to the field type
-    fname: Optional[str] = None  # The name of the file(s)
+    ftype: str | None = None  # The name to give to the field type
+    fname: str | None = None  # The name of the file(s)
     # The attributes of the header
-    attrs: Optional[tuple[tuple[str, int, str], ...]] = None
+    attrs: tuple[tuple[str, int, str], ...] | None = None
     known_fields = None  # A list of tuple containing the field name and its type
-    config_field: Optional[str] = None  # Name of the config section (if any)
+    config_field: str | None = None  # Name of the config section (if any)
 
-    file_descriptor: Optional[str] = None  # The name of the file descriptor (if any)
+    file_descriptor: str | None = None  # The name of the file descriptor (if any)
 
     # These properties are computed dynamically
     field_offsets = None  # Mapping from field to offset in file
@@ -308,10 +307,9 @@ class HydroFieldFileHandler(FieldFileHandler):
 
         num = os.path.basename(ds.parameter_filename).split(".")[0].split("_")[1]
         testdomain = 1  # Just pick the first domain file to read
-        basepath = os.path.abspath(os.path.dirname(ds.parameter_filename))
-        basename = "%s/%%s_%s.out%05i" % (basepath, num, testdomain)
+        basename = os.path.join(ds.directory, f"%s_{num}.out{testdomain:05}")
         fname = basename % "hydro"
-        fname_desc = os.path.join(basepath, cls.file_descriptor)
+        fname_desc = os.path.join(ds.directory, cls.file_descriptor)
 
         attrs = cls.attrs
         with FortranFile(fname) as fd:

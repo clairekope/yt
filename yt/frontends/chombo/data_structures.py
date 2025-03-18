@@ -219,7 +219,7 @@ class ChomboHierarchy(GridIndex):
             get_box_grids_level(
                 self.grid_left_edge[i, :],
                 self.grid_right_edge[i, :],
-                self.grid_levels[i] + 1,
+                self.grid_levels[i].item() + 1,
                 self.grid_left_edge,
                 self.grid_right_edge,
                 self.grid_levels,
@@ -330,9 +330,7 @@ class ChomboDataset(Dataset):
         is_periodic = np.array([True, True, True])
         for dir in range(self.dimensionality):
             try:
-                is_periodic[dir] = self._handle["/level_0"].attrs[
-                    "is_periodic_%d" % dir
-                ]
+                is_periodic[dir] = self._handle["/level_0"].attrs[f"is_periodic_{dir}"]
             except KeyError:
                 is_periodic[dir] = True
         self._periodicity = tuple(is_periodic)

@@ -1,5 +1,4 @@
 import base64
-import builtins
 import contextlib
 import copy
 import errno
@@ -18,12 +17,13 @@ from collections.abc import Callable
 from copy import deepcopy
 from functools import lru_cache, wraps
 from numbers import Number as numeric_type
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 from more_itertools import always_iterable, collapse, first
 
 from yt._maintenance.deprecation import issue_deprecation_warning
+from yt._maintenance.ipython_compat import IS_IPYTHON
 from yt.config import ytcfg
 from yt.units import YTArray, YTQuantity
 from yt.utilities.exceptions import YTFieldNotFound, YTInvalidWidthError
@@ -137,7 +137,7 @@ def humanize_time(secs):
     """
     mins, secs = divmod(secs, 60)
     hours, mins = divmod(mins, 60)
-    return "%02d:%02d:%02d" % (hours, mins, secs)
+    return ":".join(f"{int(t):02}" for t in (hours, mins, secs))
 
 
 #
@@ -617,15 +617,16 @@ def fancy_download_file(url, filename, requests=None):
 
 
 def simple_download_file(url, filename):
+    import urllib.error
     import urllib.request
 
-    class MyURLopener(urllib.request.FancyURLopener):
-        def http_error_default(self, url, fp, errcode, errmsg, headers):
-            raise RuntimeError(
-                f"Attempt to download file from {url} failed with error {errcode}: {errmsg}."
-            )
+    try:
+        fn, h = urllib.request.urlretrieve(url, filename)
+    except urllib.error.HTTPError as err:
+        raise RuntimeError(
+            f"Attempt to download file from {url} failed with error {err.code}: {err.msg}."
+        ) from None
 
-    fn, h = MyURLopener().retrieve(url, filename)
     return fn
 
 
@@ -694,11 +695,9 @@ def parallel_profile(prefix):
     """
     import cProfile
 
-    fn = "%s_%04i_%04i.cprof" % (
-        prefix,
-        ytcfg.get("yt", "internals", "topcomm_parallel_size"),
-        ytcfg.get("yt", "internals", "topcomm_parallel_rank"),
-    )
+    topcomm_parallel_size = ytcfg.get("yt", "internals", "topcomm_parallel_size")
+    topcomm_parallel_rank = ytcfg.get("yt", "internals", "topcomm_parallel_rank")
+    fn = f"{prefix}_{topcomm_parallel_size:04}_{topcomm_parallel_rank}.cprof"
     p = cProfile.Profile()
     p.enable()
     yield fn
@@ -1023,7 +1022,7 @@ def toggle_interactivity():
     global interactivity
     interactivity = not interactivity
     if interactivity:
-        if "__IPYTHON__" in dir(builtins):
+        if IS_IPYTHON:
             import IPython
 
             shell = IPython.get_ipython()
@@ -1086,7 +1085,7 @@ def array_like_field(data, x, field):
         return data.ds.quan(x, units)
 
 
-def _full_type_name(obj: object = None, /, *, cls: Optional[type] = None) -> str:
+def _full_type_name(obj: object = None, /, *, cls: type | None = None) -> str:
     if cls is not None and obj is not None:
         raise TypeError("_full_type_name takes an object or a class, but not both")
     if cls is None:
@@ -1106,7 +1105,7 @@ def validate_3d_array(obj):
 def validate_float(obj):
     """Validates if the passed argument is a float value.
 
-    Raises an exception if `obj` is a single float value
+    Raises an exception if `obj` is not a single float value
     or a YTQuantity of size 1.
 
     Parameters
@@ -1157,7 +1156,7 @@ def validate_float(obj):
 def validate_sequence(obj):
     if obj is not None and not is_sequence(obj):
         raise TypeError(
-            "Expected an iterable object, " f"received {_full_type_name(obj)!r}"
+            f"Expected an iterable object, received {_full_type_name(obj)!r}"
         )
 
 
@@ -1224,7 +1223,7 @@ def validate_center(center):
         )
 
 
-def parse_center_array(center, ds, axis: Optional[int] = None):
+def parse_center_array(center, ds, axis: int | None = None):
     known_shortnames = {"m": "max", "c": "center", "l": "left", "r": "right"}
     valid_single_str_values = ("center", "left", "right")
     valid_field_loc_str_values = ("min", "max")
