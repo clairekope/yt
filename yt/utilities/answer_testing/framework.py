@@ -409,6 +409,15 @@ class AnswerTestingTest:
                 self.reference_storage.reference_name = None
 
         if self.reference_storage.reference_name is not None:
+            print(
+                "YT DEBUG -- AnswerTestingTest.__call__\n",
+                "\t",
+                self.reference_storage.reference_name,
+                "\t",
+                self.storage_name,
+                "\t",
+                self.description,
+            )
             # Compare test generated values against the golden answer
             dd = self.reference_storage.get(self.storage_name)
             if dd is None or self.description not in dd:
