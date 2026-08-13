@@ -93,6 +93,7 @@ HDF5 = [
 ]
 netCDF4 = ["netCDF4!=1.6.1,>=1.5.8"] # see https://github.com/Unidata/netcdf4-python/issues/1192
 Fortran = ["f90nml>=1.1"]
+openpmd_api = ["openpmd-api>=0.17.1"]
 
 # frontend-specific requirements
 # all frontends should have a target, even if no additional requirements are needed
