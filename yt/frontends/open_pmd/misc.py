@@ -71,6 +71,7 @@ def is_const_component(record_component):
     return "value" in record_component.attributes
 
 
+# TODO delete
 """
 def component_ordering(record_component = np.array, geometry = str, data_order = str, axes_labels = list):
     This function converts arrays of the on-disk record component shape to a readable, column-major style
@@ -105,7 +106,7 @@ def component_ordering(record_component = np.array, geometry = str, data_order =
 """
 
 
-def pad_to_threed(
+def pad_to_3d(
     record_component=np.array,
     fill_value=int,
     geometry=str,
@@ -117,16 +118,20 @@ def pad_to_threed(
     """
     if "cartesian" in geometry:
         if data_order == "C":
+            # FIXME axis labels can be alphabetical with C ordering
             assert sorted(axes_labels) == axes_labels[::-1]
             record_component = record_component[::-1]
         elif data_order == "F":
             assert sorted(axes_labels) == axes_labels
+            pass
+        # FIXME This will not guarentee correct dim is filled if e.g. x, z axes present
         record_component = np.append(
             record_component, np.full(3 - record_component.shape[0], fill_value)
         )
         return record_component
     else:
-        mylog.warning(f"'{geometry}' geometry is not yet supported :( )")
+        # Yes, this is a duplicate warning. You'll need to add geometry support in two places!
+        mylog.warning(f"'{geometry}' geometry is not yet supported.")
         raise NotImplementedError
 
 

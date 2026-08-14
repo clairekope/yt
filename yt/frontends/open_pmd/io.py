@@ -11,7 +11,7 @@ from yt.utilities.io_handler import BaseIOHandler
 
 
 class IOHandlerOpenPMD(BaseIOHandler):
-    _field_dtype = "float32"
+    _field_dtype = "float32"  # TODO consider making variable
     _dataset_type = "openPMD"
 
     def __init__(self, ds, *args, **kwargs):

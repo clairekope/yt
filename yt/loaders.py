@@ -100,6 +100,7 @@ def load(fn: Union[str, "os.PathLike[str]"], *args, hint: str | None = None, **k
     _input_fn = fn
     fn = os.path.expanduser(fn)
 
+    # TODO openPMD uses %T for wildcards
     if any(wildcard in fn for wildcard in "[]?!*"):
         from yt.data_objects.time_series import DatasetSeries
 

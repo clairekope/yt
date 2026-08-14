@@ -142,15 +142,13 @@ class OpenPMDFieldInfo(FieldInfoContainer):
         f = ds._handle
 
         try:
-            fields = f.meshes
-            for fname in list(fields):
-                field = fields[fname]
-                if len(list(field)) == 1 or is_const_component(field):
+            for fname, field in f.meshes.items():
+                if field.scalar or is_const_component(field):
                     # Don't consider axes.
                     # This appears to be a vector field of single dimensionality
                     ytname = str(
                         "_".join([fname.replace("_", "-")])
-                    )  # doesn't do anything for us
+                    )  # NOTE safety or naming convention assumption?
                     parsed = parse_unit_dimension(
                         np.asarray(field.unit_dimension, dtype="int64")
                     )
@@ -163,7 +161,9 @@ class OpenPMDFieldInfo(FieldInfoContainer):
                     self.known_other_fields += ((ytname, (unit, aliases, None)),)
                 else:
                     for axis in list(field):
-                        ytname = str("_".join([fname.replace("_", "-"), axis]))
+                        ytname = str(
+                            "_".join([fname.replace("_", "-"), axis])
+                        )  # NOTE safety or naming convention assumption?
                         parsed = parse_unit_dimension(
                             np.asarray(field.unit_dimension, dtype="int64")
                         )
@@ -180,25 +180,28 @@ class OpenPMDFieldInfo(FieldInfoContainer):
             pass
 
         try:
-            particles = f.particles
-            for pname in list(particles):
-                species = particles[pname]
-                for recname in list(species):
+            for pname, species in f.particles.items():
+                for recname, record in species.items():
                     try:
-                        record = species[recname]
                         parsed = parse_unit_dimension(record.unit_dimension)
                         unit = str(YTQuantity(1, parsed).units)
 
+                        # NOTE safety or naming convention assumption?
                         ytattrib = str(recname).replace("_", "-")
                         if ytattrib == "position":
                             # Symbolically rename position to preserve yt's
                             # interpretation of the pfield particle_position is later
                             # derived in setup_absolute_positions in the way yt expects
                             ytattrib = "positionCoarse"
-                        if len(list(record)) == 1 or is_const_component(record):
+                        if record.scalar or is_const_component(
+                            record
+                        ):  # TODO again, what could be const components?
                             name = ["particle", ytattrib]
                             self.known_particle_fields += (
-                                (str("_".join(name)), (unit, [], None)),
+                                (
+                                    str("_".join(name)),
+                                    (unit, [], None),
+                                ),  # NOTE safety or naming convention assumption?
                             )
                         else:
                             for axis in list(record):

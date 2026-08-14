@@ -8,7 +8,7 @@ from yt.data_objects.index_subobjects.grid_patch import AMRGridPatch
 from yt.data_objects.static_output import Dataset
 from yt.data_objects.time_series import DatasetSeries
 from yt.frontends.open_pmd.fields import OpenPMDFieldInfo
-from yt.frontends.open_pmd.misc import is_const_component, pad_to_threed
+from yt.frontends.open_pmd.misc import is_const_component, pad_to_3d
 from yt.funcs import setdefaultattr
 from yt.geometry.grid_geometry_handler import GridIndex
 from yt.utilities.file_handler import OpenPMDFileHandler
@@ -24,7 +24,7 @@ class OpenPMDGrid(AMRGridPatch):
     """Represents chunk of data on-disk.
 
     This defines the index and offset for every mesh and particle type.
-    It also defines parents and children grids (still some problems here).
+    It also defines parents and children grids (TODO still some problems here).
     """
 
     _id_offset = 0
@@ -309,7 +309,8 @@ class OpenPMDHierarchy(GridIndex):
         self.num_grids = 0
 
         try:
-            # here we assuming symmetry across meshes on a per_level basis
+            # here we assuming symmetry across meshes on a per_level base_units
+            # FIXME this makes assumptions about file struture
             for level, mname in enumerate(list(f.meshes)[: self.max_level + 1]):
                 mesh = f.meshes[mname]
                 if isinstance(mesh, openpmd_api.io.openpmd_api_cxx.Mesh):
@@ -356,7 +357,7 @@ class OpenPMDHierarchy(GridIndex):
             pass
 
         # Limit values per grid by resulting memory footprint
-        # TODO
+        # FIXME
         self.vpg = int(
             self.dataset.gridsize
         )  # 4Byte per value (f32) #havn't used this yet
@@ -416,7 +417,7 @@ class OpenPMDHierarchy(GridIndex):
             for chunk in chunk_ls:  # convert chunks to grids!
                 # dimension of individual chunks/grids
                 # [::-1]?
-                chunk_dim = pad_to_threed(
+                chunk_dim = pad_to_3d(
                     np.array(chunk.extent, dtype=np.int32),
                     1,
                     self.dataset._geometry,
@@ -431,14 +432,14 @@ class OpenPMDHierarchy(GridIndex):
                     np.array(chunk.offset) + np.array(chunk.extent)
                 ) * unit_si * spacing + offset
 
-                gle = pad_to_threed(
+                gle = pad_to_3d(
                     gle,
                     0,
                     self.dataset._geometry,
                     self.dataset._axes_labels,
                     self.dataset._data_order,
                 )
-                gre = pad_to_threed(
+                gre = pad_to_3d(
                     gre,
                     1,
                     self.dataset._geometry,
@@ -609,7 +610,9 @@ class OpenPMDDataset(Dataset):
     - particle and mesh positions are *absolute* with respect to the simulation origin.
     """
 
-    _load_requirements = ["openpmd_api"]
+    _load_requirements = [
+        "openpmd_api"
+    ]  # TODO do we also need to require HDF5 and/or adios2?
     _index_class = OpenPMDHierarchy
     _field_info_class = OpenPMDFieldInfo
 
@@ -622,14 +625,17 @@ class OpenPMDDataset(Dataset):
         unit_system="mks",
         **kwargs,
     ):
-        try:
+        try:  # NOTE this only works with single iteration saves (either per file or per folder)
             self._series_handle = OpenPMDFileHandler(filename)
             self._handle = self._series_handle.handle.iterations[
+                # This is needed b/c openPMD pulls the iteration name from the filename;
+                # e.g. data00000255.h5 would be self._series_handle.handle.iterations[255].
+                # We need to fetch this number and then fetch the iteration.
                 list(self._series_handle.handle.iterations)[0]
             ]
         except TypeError:
             pass
-        self.gridsize = kwargs.pop("open_pmd_virtual_gridsize", 10**9)
+        # self.gridsize = kwargs.pop("open_pmd_virtual_gridsize", 10**9)  # TODO is this necessary?
         self.standard_version = Version(self._series_handle.handle.openPMD)
         self.iteration = kwargs.pop("iteration", None)
         self._set_paths(self._series_handle, path.dirname(filename), self.iteration)
@@ -747,15 +753,21 @@ class OpenPMDDataset(Dataset):
         first_mesh = f.meshes[list(f.meshes)[0]]
         self._axes_labels = first_mesh.axis_labels
         self._data_order = first_mesh.data_order
-        self._geometry = str(first_mesh.geometry)
+        self._geometry = str(first_mesh.geometry).split(".")[
+            1
+        ]  # e.g. 'Geometry.cartesian'
         del first_mesh
+
+        supported_geometries = ["cartesian"]
+        if self._geometry not in supported_geometries:
+            mylog.warning(f"'{self._geometry}' geometry is not yet supported.")
+            raise NotImplementedError
 
         try:
             shapes = {}
             left_edges = {}
             right_edges = {}
-            for mname in f.meshes:
-                mesh = f.meshes[mname]
+            for mname, mesh in f.meshes.items():
                 # only access these three times, but they should all be the same?
                 if isinstance(mesh, openpmd_api.io.openpmd_api_cxx.Mesh):
                     # all mesh axes should have same shape
@@ -768,9 +780,11 @@ class OpenPMDDataset(Dataset):
                 offset = np.asarray(mesh.grid_global_offset)
                 unit_si = np.asarray(mesh.grid_unit_SI)
                 le = offset * unit_si
-                if "lvl" in mname:
+                if "lvl" in mname:  # NOTE specific field name expectation
                     max_lev = max(max_lev, int(mname.split("lvl")[-1]))
-                re = le + shape * unit_si * spacing
+                re = (
+                    le + shape * unit_si * spacing
+                )  # NOTE this math will fail for thetaMode geometry
                 shapes[mname] = (
                     shape  # component_ordering(shape, self._geometry, self._data_order, self._axes_labels)
                 )
@@ -783,7 +797,6 @@ class OpenPMDDataset(Dataset):
             # hidden as this is traditionally an index variable
             self._max_level = max_lev
             lowest_dim = np.min([len(i) for i in shapes.values()])
-            # print([len(i) for i in shapes.values()])
             shapes = np.asarray([i[:lowest_dim] for i in shapes.values()])
             left_edges = np.asarray([i[:lowest_dim] for i in left_edges.values()])
             right_edges = np.asarray([i[:lowest_dim] for i in right_edges.values()])
@@ -796,21 +809,21 @@ class OpenPMDDataset(Dataset):
                 dle.append(np.min(left_edges.transpose()[i]))
                 dre.append(np.min(right_edges.transpose()[i]))
             self.dimensionality = len(fs)
-            self.domain_dimensions = pad_to_threed(
+            self.domain_dimensions = pad_to_3d(
                 np.array(fs, dtype=np.int32),
                 1,
                 self._geometry,
                 self._axes_labels,
                 self._data_order,
             )
-            self.domain_left_edge = pad_to_threed(
+            self.domain_left_edge = pad_to_3d(
                 np.array(dle, dtype=np.float64),
                 0,
                 self._geometry,
                 self._axes_labels,
                 self._data_order,
             )
-            self.domain_right_edge = pad_to_threed(
+            self.domain_right_edge = pad_to_3d(
                 np.array(dre, dtype=np.float64),
                 1,
                 self._geometry,
@@ -818,7 +831,7 @@ class OpenPMDDataset(Dataset):
                 self._data_order,
             )
         except (KeyError, TypeError, AttributeError):
-            # maybe we should throw an error for older versions of the standard.
+            # TODO maybe we should throw an error for older versions of the standard.
             if self.standard_version <= Version("1.1.0"):
                 self.dimensionality = 3
                 self.domain_dimensions = np.ones(3, dtype=np.int32)
@@ -846,7 +859,7 @@ class OpenPMDDataset(Dataset):
                 handle.close()
                 return False
             if "Iteration_Encoding.group_based" in str(handle.iteration_encoding):
-                iteration = kwargs.pop("iteration", None)
+                iteration = kwargs.pop("iteration", None)  # TODO document kwarg
                 if len(list(handle.iterations)) > 1 and iteration is None:
                     handle.close()
                     return False
@@ -856,7 +869,7 @@ class OpenPMDDataset(Dataset):
             return False
 
 
-class OpenPMDDatasetSeries(DatasetSeries):
+class OpenPMDDatasetSeries(DatasetSeries):  # TODO test
     _pre_outputs = ()
     _dataset_cls = OpenPMDDataset
     parallel = True
