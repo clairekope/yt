@@ -227,8 +227,12 @@ class OpenPMDHierarchy(GridIndex):
             # here we force higher level meshes to not appear on field list
             for mname in list(f.meshes)[:: self.max_level + 1]:
                 try:
-                    for axis in list(f.meshes[mname]):
-                        mesh_fields.append(mname.replace("_", "-") + "_" + axis)
+                    mesh = f.meshes[mname]
+                    if mesh.scalar or is_const_component(mesh):
+                        mesh_fields.append(mname.replace("_", "-"))
+                    else:
+                        for axis in mesh:
+                            mesh_fields.append(mname.replace("_", "-") + "_" + axis)
                 except AttributeError:  # not sure if this would ever happen
                     # (i.e. scalar or constant component with no axes)
                     mesh_fields.append(mname.replace("_", "-"))
@@ -358,9 +362,9 @@ class OpenPMDHierarchy(GridIndex):
 
         # Limit values per grid by resulting memory footprint
         # FIXME
-        self.vpg = int(
-            self.dataset.gridsize
-        )  # 4Byte per value (f32) #havn't used this yet
+        # self.vpg = int(
+        #     self.dataset.gridsize
+        # )  # 4Byte per value (f32) #havn't used this yet
         for chunk_ls, *_ in self.meshshapes.values():
             # ) #we are just using the amount of grids per level,
             # assuming equality between records of same level
@@ -410,9 +414,7 @@ class OpenPMDHierarchy(GridIndex):
             shape = np.asarray(shape)
             spacing = np.asarray(spacing)
             offset = np.asarray(offset)
-            print("level", level, type(level))
             # Total dimension of this domain on a per-mesh-level basis!
-            # domain_dimension = pad_to_threed(np.asarray(shape, dtype=np.int32), 1, self.dataset._geometry, self.dataset._axes_labels, self.dataset._data_order)
 
             for chunk in chunk_ls:  # convert chunks to grids!
                 # dimension of individual chunks/grids
@@ -478,7 +480,7 @@ class OpenPMDHierarchy(GridIndex):
                     # pd = num_parts #particle dictionary, mirroring _pdata dict from amrex frontend
                 )
                 grid_index_total += 1
-            print(unit_si)
+
             self.level_dds[level, :] = (gre - gle) / chunk_dim
 
         # handled_ptypes = []
@@ -555,7 +557,6 @@ class OpenPMDHierarchy(GridIndex):
                 )
                 grid_index_total += 1
         """
-        print("ENDINDEX")
 
     def _populate_grid_objects(self):
         """This initializes all grids.
@@ -800,31 +801,27 @@ class OpenPMDDataset(Dataset):
             shapes = np.asarray([i[:lowest_dim] for i in shapes.values()])
             left_edges = np.asarray([i[:lowest_dim] for i in left_edges.values()])
             right_edges = np.asarray([i[:lowest_dim] for i in right_edges.values()])
-            fs = []
-            dle = []
-            dre = []
-            # Make these Row-ordered and then pad to three dimensions
-            for i in np.arange(lowest_dim):
-                fs.append(np.max(shapes.transpose()[i]).astype(int))
-                dle.append(np.min(left_edges.transpose()[i]))
-                dre.append(np.min(right_edges.transpose()[i]))
-            self.dimensionality = len(fs)
+            # Make these row-ordered and then pad to three dimensions.
+            fs = np.max(shapes, axis=0).astype(int)
+            dle = np.min(left_edges, axis=0)
+            dre = np.min(right_edges, axis=0)
+            self.dimensionality = fs.size
             self.domain_dimensions = pad_to_3d(
-                np.array(fs, dtype=np.int32),
+                fs,
                 1,
                 self._geometry,
                 self._axes_labels,
                 self._data_order,
             )
             self.domain_left_edge = pad_to_3d(
-                np.array(dle, dtype=np.float64),
+                dle,
                 0,
                 self._geometry,
                 self._axes_labels,
                 self._data_order,
             )
             self.domain_right_edge = pad_to_3d(
-                np.array(dre, dtype=np.float64),
+                dre,
                 1,
                 self._geometry,
                 self._axes_labels,

@@ -113,21 +113,27 @@ def pad_to_3d(
     axes_labels=list,
     data_order=str,
 ):
-    """This function converts grid and domain dimension/edge arrays to column-major, 3D arrays with
+    """
+    Convert grid and domain dimension/edge arrays to x,y,z order 3D arrays with
     padded dimensions filled with fill_value.
     """
     if "cartesian" in geometry:
-        if data_order == "C":
-            # FIXME axis labels can be alphabetical with C ordering
-            assert sorted(axes_labels) == axes_labels[::-1]
+        if sorted(axes_labels) == axes_labels[::-1]:
+            # the axis labels need to be in alphabetical order; e.g. (z, x) becomes (x, z)
+            # pathologic cases like (y, x, z) will NOT be sorted correctly
             record_component = record_component[::-1]
-        elif data_order == "F":
-            assert sorted(axes_labels) == axes_labels
-            pass
-        # FIXME This will not guarentee correct dim is filled if e.g. x, z axes present
-        record_component = np.append(
-            record_component, np.full(3 - record_component.shape[0], fill_value)
-        )
+        assert len(record_component.shape) == 1  # 1D array
+        # Pad to 3D
+        if record_component.size < 3:
+            new_component = np.empty(3, record_component.dtype)
+            ilabel = 0
+            for dim, label in enumerate(("x", "y", "z")):
+                if label in axes_labels:
+                    new_component[dim] = record_component[ilabel]
+                    ilabel += 1
+                else:
+                    new_component[dim] = fill_value
+            record_component = new_component
         return record_component
     else:
         # Yes, this is a duplicate warning. You'll need to add geometry support in two places!
@@ -135,6 +141,7 @@ def pad_to_3d(
         raise NotImplementedError
 
 
+# TODO wtf is this nonsense. The axis labels are not always reversed.
 def coordinate_mapping(component=str):
     """Conversion between yt axes and openpmd_api axes.
     Parameters
