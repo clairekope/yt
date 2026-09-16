@@ -6,6 +6,7 @@ from yt.frontends.open_pmd.misc import (
     coordinate_mapping,
     get_component,
     is_const_component,
+    make_xyz,
 )
 from yt.utilities.io_handler import BaseIOHandler
 
@@ -290,40 +291,35 @@ class IOHandlerOpenPMD(BaseIOHandler):
                     else:
                         component = fname
                     component = component.replace("-", "_")
+                    metadata = None
+                    component_field = None
                     if "_".join(fname.split("_")[:-1]) not in grid.ftypes:
                         # we get here due to our last chunk holding just particles
                         data = np.full(grid.ActiveDimensions, 0, dtype=np.float64)
                     else:
                         component_field = "_".join(component.split("_")[:-1])
                         component_axes = component.split("_")[-1]
+                        metadata = grid.mesh_metadata.get(component_field)
+                        if metadata is None:
+                            metadata = grid.mesh_metadata.get(fname)
                         data = get_component(
                             ds[component_field],
                             component_axes,
                             grid.findex.copy(),
                             grid.foffset.copy(),
                         )
-                    # The following is a modified AMRGridPatch.select(...)
-                    # print(mask.shape, 'mask shape', data.shape, fname, grid.Level, grid.ftypes, grid.ptypes)
-                    """
-                    THIS WORKS"""
-                    # if data.shape[0] != mask.shape[0]:
-                    if ds[component_field].data_order == "C":
-                        # this only works for rectangular, non particle grids
-                        # print('before swap', np.shape(data))
-                        if len(data.shape) == 3:
-                            data = np.transpose(data, (2, 1, 0))
-                        elif len(data.shape) == 2:
-                            data = np.transpose(
-                                data.reshape(data.shape[0], data.shape[1], 1), (1, 0, 2)
-                            )
-                        elif len(data.shape) == 1:
-                            data = data.reshape(data.shape[0], 1, 1)
-                        # data = np.swapaxes(data, 1,0)
-                        # data.shape
-                        # data = np.transpose(data, _3d)
-                        # data = np.swapaxes(data,1,0) #this works when we pad last axes as 1 in 3c
+                    if component_field is not None:
+                        if metadata is None:
+                            axes_labels = ds[component_field].axis_labels
+                        else:
+                            axes_labels = metadata["axis_labels"]
+                        data = make_xyz(data, axes_labels)
                     # print('datashape,maskshape', data.shape, mask.shape)
-                    data.shape = mask.shape
+                    if data.shape != mask.shape:
+                        raise ValueError(
+                            f"OpenPMD field {field} has shape {data.shape}, "
+                            f"but the yt grid mask has shape {mask.shape}"
+                        )
                     # print(data.shape, 'postahape', np.shape(data))
                     # OLD VERSION
                     # data.shape = (

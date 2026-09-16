@@ -8,7 +8,7 @@ from yt.data_objects.index_subobjects.grid_patch import AMRGridPatch
 from yt.data_objects.static_output import Dataset
 from yt.data_objects.time_series import DatasetSeries
 from yt.frontends.open_pmd.fields import OpenPMDFieldInfo
-from yt.frontends.open_pmd.misc import is_const_component, pad_to_3d
+from yt.frontends.open_pmd.misc import is_const_component, make_xyz
 from yt.funcs import setdefaultattr
 from yt.geometry.grid_geometry_handler import GridIndex
 from yt.utilities.file_handler import OpenPMDFileHandler
@@ -53,6 +53,7 @@ class OpenPMDGrid(AMRGridPatch):
         self.poffset = po
         self.ftypes = ft
         self.ptypes = pt
+        self.mesh_metadata = index.mesh_metadata
         self._parent_id = []
         self._children_ids = []
         self.Level = level
@@ -309,6 +310,7 @@ class OpenPMDHierarchy(GridIndex):
         """
         f = self.dataset._handle
         self.meshshapes = {}
+        self.mesh_metadata = {}
         self.numparts = {}
         self.num_grids = 0
 
@@ -318,9 +320,8 @@ class OpenPMDHierarchy(GridIndex):
             for level, mname in enumerate(list(f.meshes)[: self.max_level + 1]):
                 mesh = f.meshes[mname]
                 if isinstance(mesh, openpmd_api.io.openpmd_api_cxx.Mesh):
-                    if len(mesh[list(mesh)[0]].available_chunks()) > 0:
-                        chunk_list = mesh[list(mesh)[0]].available_chunks()
-                    else:
+                    chunks = tuple(mesh[list(mesh)[0]].available_chunks())
+                    if not chunks:
                         raise AttributeError
                     shape = tuple(
                         mesh[list(mesh)[0]].shape
@@ -331,8 +332,19 @@ class OpenPMDHierarchy(GridIndex):
                 spacing = tuple(mesh.grid_spacing)
                 offset = tuple(mesh.grid_global_offset)
                 unit_si = mesh.grid_unit_SI
+                for component_name in mesh:
+                    component = mesh[component_name]
+                    self.mesh_metadata[f"{mname}_{component_name}"] = {
+                        "axis_labels": tuple(mesh.axis_labels),
+                        "data_order": str(mesh.data_order),
+                        "shape": tuple(component.shape),
+                        "grid_spacing": spacing,
+                        "grid_global_offset": offset,
+                        "grid_unit_si": unit_si,
+                        "chunks": chunks,
+                    }
                 self.meshshapes[level] = (
-                    chunk_list,
+                    chunks,
                     shape,
                     spacing,
                     offset,
@@ -419,12 +431,10 @@ class OpenPMDHierarchy(GridIndex):
             for chunk in chunk_ls:  # convert chunks to grids!
                 # dimension of individual chunks/grids
                 # [::-1]?
-                chunk_dim = pad_to_3d(
+                chunk_dim = make_xyz(
                     np.array(chunk.extent, dtype=np.int32),
-                    1,
-                    self.dataset._geometry,
                     self.dataset._axes_labels,
-                    self.dataset._data_order,
+                    fill_value=1,
                 )
 
                 gle = (
@@ -434,19 +444,15 @@ class OpenPMDHierarchy(GridIndex):
                     np.array(chunk.offset) + np.array(chunk.extent)
                 ) * unit_si * spacing + offset
 
-                gle = pad_to_3d(
+                gle = make_xyz(
                     gle,
-                    0,
-                    self.dataset._geometry,
                     self.dataset._axes_labels,
-                    self.dataset._data_order,
+                    fill_value=0,
                 )
-                gre = pad_to_3d(
+                gre = make_xyz(
                     gre,
-                    1,
-                    self.dataset._geometry,
                     self.dataset._axes_labels,
-                    self.dataset._data_order,
+                    fill_value=1,
                 )
                 # set things up
 
@@ -806,26 +812,20 @@ class OpenPMDDataset(Dataset):
             dle = np.min(left_edges, axis=0)
             dre = np.min(right_edges, axis=0)
             self.dimensionality = fs.size
-            self.domain_dimensions = pad_to_3d(
+            self.domain_dimensions = make_xyz(
                 fs,
-                1,
-                self._geometry,
                 self._axes_labels,
-                self._data_order,
+                fill_value=1,
             )
-            self.domain_left_edge = pad_to_3d(
+            self.domain_left_edge = make_xyz(
                 dle,
-                0,
-                self._geometry,
                 self._axes_labels,
-                self._data_order,
+                fill_value=0,
             )
-            self.domain_right_edge = pad_to_3d(
+            self.domain_right_edge = make_xyz(
                 dre,
-                1,
-                self._geometry,
                 self._axes_labels,
-                self._data_order,
+                fill_value=1,
             )
         except (KeyError, TypeError, AttributeError):
             # TODO maybe we should throw an error for older versions of the standard.

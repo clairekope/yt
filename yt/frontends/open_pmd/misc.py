@@ -106,39 +106,50 @@ def component_ordering(record_component = np.array, geometry = str, data_order =
 """
 
 
-def pad_to_3d(
-    record_component=np.array,
-    fill_value=int,
-    geometry=str,
-    axes_labels=list,
-    data_order=str,
-):
+def make_xyz(value, axes_labels, fill_value=None):
+    """Reorder OpenPMD values into yt's x, y, z axis order.
+
+    Parameters
+    ----------
+    value : array_like
+        Mesh data or a one-dimensional mesh metadata vector.
+    axes_labels : sequence of str
+        OpenPMD axis labels corresponding to ``value``'s dimensions.
+    fill_value : scalar, optional
+        Value used for missing axes in metadata vectors.
     """
-    Convert grid and domain dimension/edge arrays to x,y,z order 3D arrays with
-    padded dimensions filled with fill_value.
-    """
-    if "cartesian" in geometry:
-        if sorted(axes_labels) == axes_labels[::-1]:
-            # the axis labels need to be in alphabetical order; e.g. (z, x) becomes (x, z)
-            # pathologic cases like (y, x, z) will NOT be sorted correctly
-            record_component = record_component[::-1]
-        assert len(record_component.shape) == 1  # 1D array
-        # Pad to 3D
-        if record_component.size < 3:
-            new_component = np.empty(3, record_component.dtype)
-            ilabel = 0
-            for dim, label in enumerate(("x", "y", "z")):
-                if label in axes_labels:
-                    new_component[dim] = record_component[ilabel]
-                    ilabel += 1
-                else:
-                    new_component[dim] = fill_value
-            record_component = new_component
-        return record_component
-    else:
-        # Yes, this is a duplicate warning. You'll need to add geometry support in two places!
-        mylog.warning(f"'{geometry}' geometry is not yet supported.")
-        raise NotImplementedError
+    axes_labels = tuple(axes_labels)
+    if len(set(axes_labels)) != len(axes_labels) or not set(axes_labels) <= {
+        "x",
+        "y",
+        "z",
+    }:
+        raise ValueError(f"Invalid OpenPMD axis labels: {axes_labels}")
+
+    value = np.asarray(value)
+    if value.ndim == 1:
+        if value.size != len(axes_labels):
+            raise ValueError(
+                "Metadata vector size must match the number of OpenPMD axes"
+            )
+        permutation = tuple(axes_labels.index(axis) for axis in axes_labels)
+        reordered = value[list(permutation)]
+        result = np.full(3, fill_value, dtype=value.dtype)
+        for index, axis in enumerate(("x", "y", "z")):
+            if axis in axes_labels:
+                result[index] = reordered[axes_labels.index(axis)]
+        return result
+
+    yt_axes = tuple(axis for axis in ("x", "y", "z") if axis in axes_labels)
+    permutation = tuple(axes_labels.index(axis) for axis in yt_axes)
+
+    if permutation != tuple(range(len(permutation))):
+        value = np.transpose(value, permutation)
+
+    for axis_index, axis in enumerate(("x", "y", "z")):
+        if axis not in axes_labels:
+            value = np.expand_dims(value, axis=axis_index)
+    return value
 
 
 # TODO wtf is this nonsense. The axis labels are not always reversed.
