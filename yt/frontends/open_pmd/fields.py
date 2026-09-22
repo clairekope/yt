@@ -84,7 +84,7 @@ def setup_absolute_positions(self, ptype):
     def _abs_pos(axis):
         def ap(data):
             return np.add(
-                data[ptype, f"particle_positionCoarse_{axis}"],
+                data[ptype, f"particle_position_{axis}"],
                 data[ptype, f"particle_positionOffset_{axis}"],
             )
 
@@ -92,7 +92,7 @@ def setup_absolute_positions(self, ptype):
 
     for ax in "xyz":
         self.add_field(
-            (ptype, f"particle_position_{ax}"),
+            (ptype, f"particle_position_absolute_{ax}"),
             sampling_type="particle",
             function=_abs_pos(ax),
             units="m",
@@ -107,8 +107,8 @@ class OpenPMDFieldInfo(FieldInfoContainer):
     ["fields", "to", "alias"], "display_name")) These fields will be represented and
     handled in yt in the way you define them here. The fields defined in both
     ``self.known_other_fields`` and ``self.known_particle_fields`` will only be added to
-    a dataset (with units, aliases, etc), if they match any entry in the
-    ``OpenPMDHierarchy``'s ``self.field_list``.
+    Native mesh and particle field names retain their OpenPMD spelling, including
+    underscores. The ``particle_`` prefix is added for yt's particle field namespace.
 
     Notes
     -----
@@ -146,9 +146,7 @@ class OpenPMDFieldInfo(FieldInfoContainer):
                 if field.scalar or is_const_component(field):
                     # Don't consider axes.
                     # This appears to be a vector field of single dimensionality
-                    ytname = str(
-                        "_".join([fname.replace("_", "-")])
-                    )  # NOTE safety or naming convention assumption?
+                    ytname = str(fname)
                     parsed = parse_unit_dimension(
                         np.asarray(field.unit_dimension, dtype="int64")
                     )
@@ -161,9 +159,7 @@ class OpenPMDFieldInfo(FieldInfoContainer):
                     self.known_other_fields += ((ytname, (unit, aliases, None)),)
                 else:
                     for axis in list(field):
-                        ytname = str(
-                            "_".join([fname.replace("_", "-"), axis])
-                        )  # NOTE safety or naming convention assumption?
+                        ytname = f"{fname}_{axis}"
                         parsed = parse_unit_dimension(
                             np.asarray(field.unit_dimension, dtype="int64")
                         )
@@ -187,12 +183,7 @@ class OpenPMDFieldInfo(FieldInfoContainer):
                         unit = str(YTQuantity(1, parsed).units)
 
                         # NOTE safety or naming convention assumption?
-                        ytattrib = str(recname).replace("_", "-")
-                        if ytattrib == "position":
-                            # Symbolically rename position to preserve yt's
-                            # interpretation of the pfield particle_position is later
-                            # derived in setup_absolute_positions in the way yt expects
-                            ytattrib = "positionCoarse"
+                        ytattrib = str(recname)
                         if record.scalar or is_const_component(
                             record
                         ):  # TODO again, what could be const components?

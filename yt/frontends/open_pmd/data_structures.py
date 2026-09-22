@@ -230,13 +230,13 @@ class OpenPMDHierarchy(GridIndex):
                 try:
                     mesh = f.meshes[mname]
                     if mesh.scalar or is_const_component(mesh):
-                        mesh_fields.append(mname.replace("_", "-"))
+                        mesh_fields.append(mname)
                     else:
                         for axis in mesh:
-                            mesh_fields.append(mname.replace("_", "-") + "_" + axis)
+                            mesh_fields.append(mname + "_" + axis)
                 except AttributeError:  # not sure if this would ever happen
                     # (i.e. scalar or constant component with no axes)
-                    mesh_fields.append(mname.replace("_", "-"))
+                    mesh_fields.append(mname)
         except (KeyError, TypeError, AttributeError):
             pass
         self.field_list = [("openPMD", str(field)) for field in mesh_fields]
@@ -249,34 +249,20 @@ class OpenPMDHierarchy(GridIndex):
                     record = f.particles[pname][recname]
                     if is_const_component(record):
                         # Record itself (e.g. particle_mass) is constant
-                        particle_fields.append(
-                            pname.replace("_", "-") + "_" + recname.replace("_", "-")
-                        )
+                        particle_fields.append((pname, recname, None))
                     elif "particlePatches" not in recname:
                         try:
                             # Create a field for every axis (x,y,z) of every
-                            # property (position) of every species (electrons)
+                            # property (e.g. position) of every species (e.g. electrons)
                             axes = list(record)
-                            if str(recname) == "position":
-                                recname = "positionCoarse"
                             if len(axes) > 1:
                                 for axis in axes:
-                                    particle_fields.append(
-                                        pname.replace("_", "-")
-                                        + "_"
-                                        + recname.replace("_", "-")
-                                        + "_"
-                                        + axis
-                                    )  # so we are doing all this, and then raising error which is why we get the noaxes field
+                                    particle_fields.append((pname, recname, axis))
                             else:
                                 raise AttributeError  # in the case that is have no axes
                         except AttributeError:
                             # Record is a dataset, does not have axes (e.g. weighting) #electrons and ions momentum, positionCoarse, and positionOffset are here
-                            particle_fields.append(
-                                pname.replace("_", "-")
-                                + "_"
-                                + recname.replace("_", "-")
-                            )
+                            particle_fields.append((pname, recname, None))
                             pass
                     else:
                         pass
@@ -286,18 +272,25 @@ class OpenPMDHierarchy(GridIndex):
                 self.field_list.extend(
                     [
                         (
-                            str(field).split("_")[0],
-                            ("particle_" + "_".join(str(field).split("_")[1:])),
+                            pname,
+                            "particle_"
+                            + recname
+                            + (f"_{axis}" if axis is not None else ""),
                         )
-                        for field in particle_fields
+                        for pname, recname, axis in particle_fields
                     ]
                 )
             else:
                 # Only one particle species, fall back to "io"
                 self.field_list.extend(
                     [
-                        ("io", ("particle_" + "_".join(str(field).split("_")[1:])))
-                        for field in particle_fields
+                        (
+                            "io",
+                            "particle_"
+                            + recname
+                            + (f"_{axis}" if axis is not None else ""),
+                        )
+                        for _pname, recname, axis in particle_fields
                     ]
                 )
         except (KeyError, TypeError, AttributeError):

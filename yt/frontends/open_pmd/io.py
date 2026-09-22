@@ -185,11 +185,14 @@ class IOHandlerOpenPMD(BaseIOHandler):
                     pds = ds[species]
                     for field in ptf[ptype]:
                         print(field, ptype, "fieldptype")
-                        # just chop off 'particle',
-                        record = field.split("_")[1:]
-                        component = record[-1]
-                        if len(record) > 1:  # specifying axes here
-                            record = record[-2].replace("positionCoarse", "position")
+                        particle_field = field.removeprefix("particle_")
+                        record = particle_field
+                        component = None
+                        if particle_field in pds:
+                            component = list(pds[particle_field])[0]
+                        elif "_" in particle_field:
+                            record, component = particle_field.rsplit("_", 1)
+                        if component is not None:  # specifying axes here
                             # component = component.replace("-", "_")
                             component = coordinate_mapping(component)
                             # make sure padded dims are in the cell-centered selection region
@@ -290,15 +293,20 @@ class IOHandlerOpenPMD(BaseIOHandler):
                         )
                     else:
                         component = fname
-                    component = component.replace("-", "_")
+                    field_name = component.replace("-", "_")
                     metadata = None
                     component_field = None
-                    if "_".join(fname.split("_")[:-1]) not in grid.ftypes:
+                    component_axes = None
+                    if field_name in ds:
+                        component_field = field_name
+                        component_axes = list(ds[component_field])[0]
+                    elif "_" in field_name:
+                        component_field, component_axes = field_name.rsplit("_", 1)
+
+                    if component_field not in grid.ftypes:
                         # we get here due to our last chunk holding just particles
                         data = np.full(grid.ActiveDimensions, 0, dtype=np.float64)
                     else:
-                        component_field = "_".join(component.split("_")[:-1])
-                        component_axes = component.split("_")[-1]
                         metadata = grid.mesh_metadata.get(component_field)
                         if metadata is None:
                             metadata = grid.mesh_metadata.get(fname)
