@@ -409,15 +409,6 @@ class AnswerTestingTest:
                 self.reference_storage.reference_name = None
 
         if self.reference_storage.reference_name is not None:
-            print(
-                "YT DEBUG -- AnswerTestingTest.__call__\n",
-                "\t",
-                self.reference_storage.reference_name,
-                "\t",
-                self.storage_name,
-                "\t",
-                self.description,
-            )
             # Compare test generated values against the golden answer
             dd = self.reference_storage.get(self.storage_name)
             if dd is None or self.description not in dd:
@@ -431,9 +422,11 @@ class AnswerTestingTest:
 
     @property
     def storage_name(self):
+        # Prefer basename so simulation-level test names don't embed full, run-specific paths.
+        name = getattr(self.ds, "basename", str(self.ds))
         if self.prefix != "":
-            return f"{self.prefix}_{self.ds}"
-        return str(self.ds)
+            return f"{self.prefix}_{name}"
+        return name
 
     def compare(self, new_result, old_result):
         raise RuntimeError
@@ -478,7 +471,9 @@ class AnswerTestingTest:
             oname = "all"
         else:
             oname = "_".join(str(s) for s in obj_type)
-        args = [self._type_name, str(self.ds), oname]
+        # Prefer basename so simulation-level test names don't embed full, run-specific paths.
+        ds_name = getattr(self.ds, "basename", str(self.ds))
+        args = [self._type_name, ds_name, oname]
         args += [str(getattr(self, an)) for an in self._attrs]
         suffix = getattr(self, "suffix", None)
         if suffix:
