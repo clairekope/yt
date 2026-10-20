@@ -98,6 +98,7 @@ yt/utilities/lib/partitioned_grid.cpp
 *.DS_Store
 *.so
 .idea/*
+.vscode/
 tests/results/*
 doc/build/*
 doc/source/reference/api/generated/*
