@@ -3051,23 +3051,39 @@ can be accessed in the same manner as conventional data containers.
 openPMD Data
 ------------
 
-`openPMD <https://www.openpmd.org>`_ is an open source meta-standard and naming
-scheme for mesh based data and particle data. It does not actually define a file
-format.
+`openPMD <https://www.openpmd.org>`_ is an open source metadata standard for mesh-based and particle data.
+It does not actually define a file format, but the oepnPMD API (which yt uses) supports
+HDF5 (.h5), ADIOS2 (.bpx where x is an integer), and JSON (.json) data formats.
+The standard does not enforce field name conventions,
+*SO I'LL HAVE TO DOCUMENT HOW I DECIDE TO HANDLE THIS*.
 
-HDF5-containers respecting the minimal set of meta information from
-versions 1.0.0 and 1.0.1 of the standard are compatible.
-Support for the ED-PIC extension is not available. Mesh data in cartesian coordinates
-and particle data can be read by this frontend.
+Files respecting the minimal set of meta information from
+versions 1.0.0, 1.0.1, and 1.1.0 of the standard are compatible.
+Cartesian mesh data and particle data can be read by this frontend.
+Support for the ED-PIC extension is not available.
 
-To load the first in-file iteration of a openPMD datasets using the standard HDF5
-output format:
+The examples below use data from the `openPMD example datasets <https://github.com/openPMD/openPMD-example-datasets>`_
+To load the first in-file iteration of an openPMD dataset that uses the standard HDF5
+file format:
 
 .. code-block:: python
 
    import yt
 
    ds = yt.load("example-3d/hdf5/data00000100.h5")
+
+For the ADIOS2 file format:
+
+.. code-block:: python
+
+   import yt
+
+   ds = yt.load(
+       "example-3d-bp4/example-3d-bp4_000550.bp/", ignore_records=["picongpu_idProvider"]
+   )
+
+Note that the ADIOS2 example uses the optional ``ignore_records`` parameter to ignore data from a non-spatial record.
+You may need to use this option to ignore such records if your datasets do not load.
 
 If you operate on large files, you may want to modify the virtual chunking behaviour through
 ``open_pmd_virtual_gridsize``. The supplied value is an estimate of the size of a single read request

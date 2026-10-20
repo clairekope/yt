@@ -223,10 +223,13 @@ class OpenPMDHierarchy(GridIndex):
         or (for multiple species of particles) the particle name on-disk.
         """
         f = self.dataset._handle
+        ignore_records = set(self.dataset.ignore_records or ())
         mesh_fields = []
         try:
             # here we force higher level meshes to not appear on field list
             for mname in list(f.meshes)[:: self.max_level + 1]:
+                if mname in ignore_records:
+                    continue
                 try:
                     mesh = f.meshes[mname]
                     if mesh.scalar or is_const_component(mesh):
@@ -246,6 +249,8 @@ class OpenPMDHierarchy(GridIndex):
             for pname in list(f.particles):
                 species = list(f.particles[pname])
                 for recname in species:
+                    if recname in ignore_records:
+                        continue
                     record = f.particles[pname][recname]
                     if is_const_component(record):
                         # Record itself (e.g. particle_mass) is constant
@@ -623,7 +628,9 @@ class OpenPMDDataset(Dataset):
         storage_filename=None,
         units_override=None,
         unit_system="mks",
-        **kwargs,
+        iteration=None,
+        ignore_records=None,
+        # virtual_gridsize ?
     ):
         try:  # NOTE this only works with single iteration saves (either per file or per folder)
             self._series_handle = OpenPMDFileHandler(filename)
@@ -635,9 +642,9 @@ class OpenPMDDataset(Dataset):
             ]
         except TypeError:
             pass
-        # self.gridsize = kwargs.pop("open_pmd_virtual_gridsize", 10**9)  # TODO is this necessary?
         self.standard_version = Version(self._series_handle.handle.openPMD)
-        self.iteration = kwargs.pop("iteration", None)
+        self.iteration = iteration
+        self.ignore_records = ignore_records
         self._set_paths(self._series_handle, path.dirname(filename), self.iteration)
         Dataset.__init__(
             self,
@@ -750,7 +757,14 @@ class OpenPMDDataset(Dataset):
         self.refine_by = 1
         self.cosmological_simulation = 0
         max_lev = 0
-        first_mesh = f.meshes[list(f.meshes)[0]]
+        ignore_records = set(self.ignore_records or ())
+        mesh_names = [mname for mname in f.meshes if mname not in ignore_records]
+        if not mesh_names:
+            raise ValueError(
+                "All openPMD mesh records were excluded by ignore_records; "
+                "at least one mesh record is needed to determine the domain."
+            )
+        first_mesh = f.meshes[mesh_names[0]]
         self._axes_labels = first_mesh.axis_labels
         self._data_order = first_mesh.data_order
         self._geometry = str(first_mesh.geometry).split(".")[
@@ -767,7 +781,8 @@ class OpenPMDDataset(Dataset):
             shapes = {}
             left_edges = {}
             right_edges = {}
-            for mname, mesh in f.meshes.items():
+            for mname in mesh_names:
+                mesh = f.meshes[mname]
                 # only access these three times, but they should all be the same?
                 if isinstance(mesh, openpmd_api.io.openpmd_api_cxx.Mesh):
                     # all mesh axes should have same shape
@@ -798,8 +813,15 @@ class OpenPMDDataset(Dataset):
             self._max_level = max_lev
             lowest_dim = np.min([len(i) for i in shapes.values()])
             shapes = np.asarray([i[:lowest_dim] for i in shapes.values()])
-            left_edges = np.asarray([i[:lowest_dim] for i in left_edges.values()])
-            right_edges = np.asarray([i[:lowest_dim] for i in right_edges.values()])
+            try:
+                left_edges = np.asarray([i[:lowest_dim] for i in left_edges.values()])
+                right_edges = np.asarray([i[:lowest_dim] for i in right_edges.values()])
+            except ValueError as e:
+                raise ValueError(
+                    "Could not determine the openPMD domain bounds because mesh "
+                    "records have incompatible dimensions. Try excluding non-spatial "
+                    "records with yt.load(..., ignore_records=['record_name'])."
+                ) from e
             # Make these row-ordered and then pad to three dimensions.
             fs = np.max(shapes, axis=0).astype(int)
             dle = np.min(left_edges, axis=0)

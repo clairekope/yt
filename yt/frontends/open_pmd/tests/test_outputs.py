@@ -89,6 +89,15 @@ def test_2d_out():
 
 
 @requires_module("openpmd_api")
+@requires_file(twoD)
+def test_ignore_records():
+    ds = load(twoD, ignore_records=["rho", "charge"])
+
+    assert ("openPMD", "rho") not in ds.field_list
+    assert not any(field == "particle_charge" for _, field in ds.field_list)
+
+
+@requires_module("openpmd_api")
 @requires_file(noFields)
 def test_no_fields_out():
     ds = data_dir_load(noFields)
